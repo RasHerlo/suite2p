@@ -6,6 +6,8 @@ from pathlib import Path
 from tifffile import imread, imwrite
 import re
 import matplotlib.pyplot as plt
+import suite2p
+import shutil
 
 def combine_registered_tiffs(suite2p_dir):
     """
@@ -86,6 +88,12 @@ def process_folder(parent_folder):
                 
                 # Get the tif file path
                 tif_path = os.path.join(root, 'denoised_cut.tif')
+                
+                # Check if denoised.tif exists in the same directory
+                denoised_path = os.path.join(root, 'denoised.tif')
+                if os.path.exists(denoised_path):
+                    print(f"Found denoised.tif, deleting: {denoised_path}")
+                    os.remove(denoised_path)
                 
                 # Set up default options
                 ops = default_ops()
