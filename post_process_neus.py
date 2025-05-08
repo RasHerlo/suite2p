@@ -4,6 +4,15 @@ import argparse
 from pathlib import Path
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
+from matplotlib.widgets import Slider
+
+"""
+This script processes neural trace data from suite2p output files.
+The input directory should be a 'plane0' folder containing the suite2p output files (.npy files).
+Expected files in the directory:
+    - F.npy: Raw fluorescence traces
+    - Other .npy files from suite2p processing
+"""
 
 def get_stimulation_range(shape):
     """
@@ -216,6 +225,8 @@ def load_npy_files(directory):
     data = {}
     directory = Path(directory)
     
+    print(f"Looking for .npy files in: {directory}")
+    
     # Find all .npy files in the directory
     npy_files = list(directory.glob('*.npy'))
     
@@ -228,38 +239,160 @@ def load_npy_files(directory):
         try:
             file_name = file_path.stem
             data[file_name] = np.load(str(file_path), allow_pickle=True)
-            print(f"Loaded {file_name}.npy")
+            print(f"Loaded {file_name}.npy with shape: {data[file_name].shape}")
         except Exception as e:
             print(f"Error loading {file_path}: {str(e)}")
     
     return data
 
+class InteractiveComponentViewer:
+    def __init__(self, F_norm, pca, component_idx):
+        self.F_norm = F_norm  # Normalized matrix
+        self.pca = pca  # Fitted PCA object
+        self.component_idx = component_idx  # Which PC we're viewing
+        self.n_neurons = F_norm.shape[0]
+        
+        # Create figure and subplots
+        self.fig, (self.ax1, self.ax2, self.ax3) = plt.subplots(
+            3, 1, 
+            figsize=(15, 12), 
+            height_ratios=[1, 1, 3]
+        )
+        
+        # Add slider
+        self.slider_ax = plt.axes([0.92, 0.2, 0.03, 0.6])  # Position to the right of bottom subplot
+        self.slider = Slider(
+            self.slider_ax,
+            'Neuron',
+            0,
+            self.n_neurons - 1,
+            valinit=0,
+            valstep=1
+        )
+        
+        # Initialize plots
+        self._init_plots()
+        
+        # Connect slider to update function
+        self.slider.on_changed(self._update)
+        
+    def _init_plots(self):
+        # Plot PC
+        self.ax1.plot(self.pca.components_[self.component_idx], 'k-', linewidth=1)
+        self.ax1.set_title(f'PC{self.component_idx+1} - Explained Variance = {self.pca.explained_variance_ratio_[self.component_idx]:.3f}')
+        self.ax1.grid(True, alpha=0.3)
+        
+        # Add stimulation period if applicable
+        stim_range = get_stimulation_range(self.F_norm.shape)
+        if stim_range is not None:
+            start_frame, end_frame = stim_range
+            self.ax1.axvspan(start_frame, end_frame, color='red', alpha=0.2, label='Stimulation')
+            self.ax1.legend()
+        
+        # Plot initial selected neuron
+        self.neuron_line, = self.ax2.plot(self.F_norm[0], 'b-', linewidth=1)
+        self.ax2.set_title('Selected Neuron Trace')
+        self.ax2.grid(True, alpha=0.3)
+        
+        # Add stimulation period to neuron trace
+        if stim_range is not None:
+            self.ax2.axvspan(start_frame, end_frame, color='red', alpha=0.2, label='Stimulation')
+            self.ax2.legend()
+        
+        # Plot sorted matrix
+        self.im = self.ax3.imshow(self.F_norm, aspect='auto', cmap='jet')
+        self.ax3.set_xlabel('Frames')
+        self.ax3.set_ylabel('Neurons (sorted by PC contribution)')
+        self.ax3.set_title(f'Traces Sorted by PC{self.component_idx+1} Contribution')
+        plt.colorbar(self.im, ax=self.ax3, label='Normalized Fluorescence')
+        
+        plt.tight_layout()
+        
+    def _update(self, val):
+        # Update selected neuron plot
+        neuron_idx = int(val)
+        self.neuron_line.set_ydata(self.F_norm[neuron_idx])
+        self.ax2.relim()
+        self.ax2.autoscale_view()
+        self.fig.canvas.draw_idle()
+
+def plot_component_sorted_traces(F_norm, pca, save_dir=None):
+    """
+    Create figures showing traces sorted by their contribution to each principal component.
+    
+    Args:
+        F_norm (numpy.ndarray): Normalized fluorescence traces
+        pca: Fitted PCA object
+        save_dir (str, optional): Directory to save the figures
+    """
+    # Handle NaN values for transform
+    F_norm_no_nan = np.nan_to_num(F_norm, nan=0)
+    
+    # Get proper projections using transform
+    # This gives us the projection of each neuron onto each PC
+    projections = pca.transform(F_norm_no_nan)  # Shape: (n_neurons, n_components)
+    
+    # Create a figure for each component
+    for i in range(5):  # For each of the first 5 PCs
+        # Sort the normalized matrix based on projections onto this PC
+        # Use absolute value of projections to sort by magnitude of contribution
+        sort_idx = np.argsort(np.abs(projections[:, i]))
+        F_sorted = F_norm[sort_idx, :]
+        
+        # Create interactive viewer
+        viewer = InteractiveComponentViewer(F_sorted, pca, i)
+        plt.show()
+
 def main():
-    parser = argparse.ArgumentParser(description='Process .npy files from a directory')
-    parser.add_argument('directory', type=str, help='Directory containing .npy files')
-    parser.add_argument('--save_fig', type=str, help='Path to save the figure (optional)')
+    parser = argparse.ArgumentParser(description='Process .npy files from a suite2p plane0 directory')
+    parser.add_argument('directory', type=str, help='Path to the suite2p plane0 directory containing .npy files')
     args = parser.parse_args()
     
+    # Convert directory path to Path object and resolve it
+    directory = Path(args.directory).resolve()
+    if not directory.exists():
+        print(f"Error: Directory {directory} does not exist")
+        return
+    
+    # Check if this is a plane0 directory
+    if not directory.name == 'plane0':
+        print(f"Warning: Expected a 'plane0' directory, but got '{directory.name}'")
+        print("Please make sure you're using the correct suite2p output directory")
+    
+    print(f"\nProcessing directory: {directory}")
+    
     # Load the data
-    data = load_npy_files(args.directory)
+    data = load_npy_files(directory)
+    
+    if not data:
+        print("No data loaded. Exiting.")
+        return
     
     # Process F.npy if it exists
     F_processed = mask_stimulation_range(data)
     
     if F_processed is not None:
         print("\nProcessing completed successfully")
-        print(f"Number of NaNs in processed data: {np.isnan(F_processed).sum()}")
         
-        # Create and show the first figure
-        F_norm = plot_traces(F_processed, args.save_fig)
+        # Create paths for saving figures
+        traces_save_path = directory / "neural_traces.png"
+        pca_save_path = directory / "pca_components.png"
         
-        # Create and show the PCA figure for normalized data
-        pca_save_path = args.save_fig.replace('.png', '_pca_norm.png') if args.save_fig else None
-        plot_pca_components(F_norm, pca_save_path, is_normalized=True)
+        # Plot and save original figures
+        F_norm = plot_traces(F_processed, str(traces_save_path))
+        plot_pca_components(F_processed, str(pca_save_path))
         
-        # Create and show the PCA figure for raw data
-        pca_raw_save_path = args.save_fig.replace('.png', '_pca_raw.png') if args.save_fig else None
-        plot_pca_components(F_processed, pca_raw_save_path, is_normalized=False)
+        # Create component-specific visualizations
+        # First normalize the data
+        F_norm = normalize_traces(F_processed)
+        # Handle NaN values for PCA
+        F_norm_no_nan = np.nan_to_num(F_norm, nan=0)
+        # Perform PCA on normalized data
+        pca = PCA(n_components=5)
+        pca.fit(F_norm_no_nan)
+        
+        # Create the new visualizations
+        plot_component_sorted_traces(F_norm, pca, str(directory))
 
 if __name__ == "__main__":
     main() 
