@@ -55,28 +55,7 @@ def initialize_file(file_path):
     endpoints = np.asarray(images.shape[1:])
     midpoints = endpoints // 2
     
-    # Initial mask regions - these are the ones from the original script
-    box_offset = (15, 150)  # y, x
-    box_size = [10, 200]    # y, x
-    mask_regions.append([
-        midpoints[0]+box_offset[0],
-        midpoints[0]+box_offset[0]+box_size[0],
-        midpoints[1]-box_offset[1],
-        midpoints[1]-box_offset[1]+box_size[1]
-    ])
-    mask_regions.append([
-        midpoints[0]-box_offset[0]-box_size[0],
-        midpoints[0]-box_offset[0],
-        midpoints[1]+box_offset[1]-box_size[1],
-        midpoints[1]+box_offset[1]
-    ])
-    
-    # Apply initial masks
-    for region in mask_regions:
-        y1, y2, x1, x2 = region
-        masked_fft[:, y1:y2, x1:x2] = 0
-    
-    # Prepare initial denoised images
+    # Prepare initial denoised images (without any masks)
     reconstructed_images = np.fft.ifftshift(masked_fft)
     reconstructed_images = np.fft.ifft2(reconstructed_images)
     denoised_images = np.abs(reconstructed_images)
