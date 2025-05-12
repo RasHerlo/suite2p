@@ -55,7 +55,28 @@ def initialize_file(file_path):
     endpoints = np.asarray(images.shape[1:])
     midpoints = endpoints // 2
     
-    # Prepare initial denoised images (without any masks)
+    # Initial mask regions - these are the ones from the original script
+    box_offset = (15, 150)  # y, x
+    box_size = [10, 200]    # y, x
+    mask_regions.append([
+        midpoints[0]+box_offset[0],
+        midpoints[0]+box_offset[0]+box_size[0],
+        midpoints[1]-box_offset[1],
+        midpoints[1]-box_offset[1]+box_size[1]
+    ])
+    mask_regions.append([
+        midpoints[0]-box_offset[0]-box_size[0],
+        midpoints[0]-box_offset[0],
+        midpoints[1]+box_offset[1]-box_size[1],
+        midpoints[1]+box_offset[1]
+    ])
+    
+    # Apply initial masks
+    for region in mask_regions:
+        y1, y2, x1, x2 = region
+        masked_fft[:, y1:y2, x1:x2] = 0
+    
+    # Prepare initial denoised images
     reconstructed_images = np.fft.ifftshift(masked_fft)
     reconstructed_images = np.fft.ifft2(reconstructed_images)
     denoised_images = np.abs(reconstructed_images)
@@ -65,11 +86,13 @@ def initialize_file(file_path):
     original_plot.set_extent([0, w, h, 0])
     denoised_plot.set_extent([0, w, h, 0])
     fft_plot.set_extent([0, w, h, 0])
+    phase_plot.set_extent([0, w, h, 0])
     
     # Ensure axes adapt to new image size
     ax_original.autoscale()
     ax_denoised.autoscale()
     ax_fft.autoscale()
+    ax_phase.autoscale()
     
     return True
 
@@ -100,12 +123,13 @@ fig = plt.figure(figsize=(16, 8))
 fig.suptitle("Interactive FFT-based Noise Removal", fontsize=16)
 
 # Create subplots with more spacing and better layout
-ax_fft = fig.add_subplot(131)
-ax_original = fig.add_subplot(132)
-ax_denoised = fig.add_subplot(133)
+ax_fft = fig.add_subplot(141)
+ax_phase = fig.add_subplot(142)
+ax_original = fig.add_subplot(143)
+ax_denoised = fig.add_subplot(144)
 
 # Set up axes
-for ax in [ax_fft, ax_original, ax_denoised]:
+for ax in [ax_fft, ax_phase, ax_original, ax_denoised]:
     ax.set_xticks([])
     ax.set_yticks([])
     # Use 'auto' instead of 'equal' to better fill available space
@@ -116,12 +140,14 @@ plt.tight_layout(rect=[0, 0.15, 1, 0.95])  # Leave space at bottom for controls
 
 # Set titles
 ax_fft.set_title("Log-Amplitude Spectrum\n(Draw/Remove Masks Here)")
+ax_phase.set_title("Phase Spectrum")
 ax_original.set_title("Original Image")
 ax_denoised.set_title("Denoised Image")
 
 # Calculate initial spectrum and vmin/vmax values
 if images is not None and images.size > 0:
     spectrum_reference = np.log(np.abs(fft_images[current_frame]) + 1e-6)
+    phase_reference = np.angle(fft_images[current_frame])
     fvmin = np.percentile(spectrum_reference, 0)
     fvmax = np.percentile(spectrum_reference, 99)
     
@@ -130,6 +156,7 @@ if images is not None and images.size > 0:
 else:
     # Default values if no image is loaded
     spectrum_reference = np.zeros((100, 100))
+    phase_reference = np.zeros((100, 100))
     fvmin, fvmax = 0, 1
     ivmin, ivmax = 0, 1
 
@@ -139,6 +166,12 @@ fft_plot = ax_fft.imshow(spectrum_reference,
                         interpolation="bicubic",
                         vmin=fvmin,
                         vmax=fvmax)
+
+phase_plot = ax_phase.imshow(phase_reference, 
+                           cmap='hsv',
+                           interpolation="bicubic",
+                           vmin=-np.pi,
+                           vmax=np.pi)
 
 original_plot = ax_original.imshow(images[current_frame], 
                                 cmap=cc.m_CET_L1_r,
@@ -206,14 +239,19 @@ def update_plots(frame):
     spectrum = np.log(np.abs(fft_images[frame]) + 1e-6)
     fft_plot.set_data(spectrum)
     
+    # Update phase image
+    phase_data = np.angle(fft_images[frame])
+    phase_plot.set_data(phase_data)
+    
     # Reset extents for all plots to ensure proper display
     h, w = images.shape[1], images.shape[2]
     original_plot.set_extent([0, w, h, 0])
     denoised_plot.set_extent([0, w, h, 0])
     fft_plot.set_extent([0, w, h, 0])
+    phase_plot.set_extent([0, w, h, 0])
     
     # Remove any explicit limits to let the image fill the available space
-    for ax in [ax_fft, ax_original, ax_denoised]:
+    for ax in [ax_fft, ax_phase, ax_original, ax_denoised]:
         ax.autoscale()
     
     # Redraw
@@ -251,6 +289,10 @@ def apply_masks():
     # Update the FFT plot
     masked_spectrum = np.log(np.abs(masked_fft[current_frame]) + 1e-6)
     fft_plot.set_data(masked_spectrum)
+    
+    # Update the phase plot
+    masked_phase = np.angle(masked_fft[current_frame])
+    phase_plot.set_data(masked_phase)
     
     fig.canvas.draw_idle()
 
@@ -333,6 +375,7 @@ def on_load_click(event):
             original_plot.set_clim(vmin=ivmin, vmax=ivmax)
             denoised_plot.set_clim(vmin=ivmin, vmax=ivmax)
             fft_plot.set_clim(vmin=fvmin, vmax=fvmax)
+            phase_plot.set_clim(vmin=-np.pi, vmax=np.pi)
             
             # Set the data for all plots
             update_plots(0)
@@ -399,6 +442,18 @@ def save_images():
     # Save FFT stack
     imwrite(fft_output_filename, fft_stack.astype(np.float32))
     print(f"Saved FFT amplitude spectrum to {fft_output_filename}")
+    
+    # Prepare phase FFT images
+    phase_stack = np.zeros_like(images, dtype=np.float32)
+    for i in range(num_frames):
+        phase_stack[i] = np.angle(fft_images[i])
+    
+    # Create output filename for phase stack
+    phase_output_filename = os.path.splitext(tiff_path)[0] + "_phase.tif"
+    
+    # Save phase stack
+    imwrite(phase_output_filename, phase_stack.astype(np.float32))
+    print(f"Saved FFT phase spectrum to {phase_output_filename}")
 
 # Callback for the save button
 def on_save_click(event):
