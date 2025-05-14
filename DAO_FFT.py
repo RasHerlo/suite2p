@@ -25,8 +25,24 @@ mask_regions = []
 endpoints = None
 midpoints = None
 
-# Function to initialize a file
-def initialize_file(file_path):
+# GUI elements
+fig = None
+ax_fft = None
+ax_phase = None
+ax_original = None
+ax_denoised = None
+fft_plot = None
+phase_plot = None
+original_plot = None
+denoised_plot = None
+frame_slider = None
+no_file_text = None
+selector = None
+mask_patches = []  # To store visualization rectangles
+current_mode = 'draw'  # 'draw' or 'remove'
+
+# Function to load a TIFF file and compute FFT
+def load_file(file_path):
     global images, fft_images, masked_fft, denoised_images, num_frames
     global tiff_path, output_filename, mask_regions, endpoints, midpoints
     
@@ -40,194 +56,57 @@ def initialize_file(file_path):
     mask_regions = []
     
     # Load images
-    images = imread(Path(tiff_path), is_ome=False)
-    images -= images.min()
-    num_frames = images.shape[0]
-    
-    # Compute FFT of all images
-    fft_images = np.fft.fft2(images)
-    fft_images = np.fft.fftshift(fft_images)
-    
-    # Create a copy of fft_images for manipulation
-    masked_fft = fft_images.copy()
-    
-    # Calculate endpoints and midpoints for masking
-    endpoints = np.asarray(images.shape[1:])
-    midpoints = endpoints // 2
-    
-    # Initial mask regions - these are the ones from the original script
-    box_offset = (15, 150)  # y, x
-    box_size = [10, 200]    # y, x
-    mask_regions.append([
-        midpoints[0]+box_offset[0],
-        midpoints[0]+box_offset[0]+box_size[0],
-        midpoints[1]-box_offset[1],
-        midpoints[1]-box_offset[1]+box_size[1]
-    ])
-    mask_regions.append([
-        midpoints[0]-box_offset[0]-box_size[0],
-        midpoints[0]-box_offset[0],
-        midpoints[1]+box_offset[1]-box_size[1],
-        midpoints[1]+box_offset[1]
-    ])
-    
-    # Apply initial masks
-    for region in mask_regions:
-        y1, y2, x1, x2 = region
-        masked_fft[:, y1:y2, x1:x2] = 0
-    
-    # Prepare initial denoised images
-    reconstructed_images = np.fft.ifftshift(masked_fft)
-    reconstructed_images = np.fft.ifft2(reconstructed_images)
-    denoised_images = np.abs(reconstructed_images)
-    
-    # Reset plot extents to match new image dimensions
-    h, w = images.shape[1], images.shape[2]
-    original_plot.set_extent([0, w, h, 0])
-    denoised_plot.set_extent([0, w, h, 0])
-    fft_plot.set_extent([0, w, h, 0])
-    phase_plot.set_extent([0, w, h, 0])
-    
-    # Ensure axes adapt to new image size
-    ax_original.autoscale()
-    ax_denoised.autoscale()
-    ax_fft.autoscale()
-    ax_phase.autoscale()
-    
-    return True
-
-# Check for command-line arguments
-if len(sys.argv) > 1:
-    # Use the provided path
-    initial_file = sys.argv[1]
-    if not os.path.exists(initial_file):
-        print(f"Error: File {initial_file} does not exist")
-        sys.exit(1)
-    initialize_file(initial_file)
-else:
-    # Empty initialization to start
-    images = np.zeros((1, 100, 100), dtype=np.float32)
-    num_frames = 1
-    tiff_path = "No file loaded"
-    output_filename = "No file loaded"
-    
-    # These will be initialized when a file is loaded
-    fft_images = np.zeros_like(images, dtype=np.complex64)
-    masked_fft = fft_images.copy()
-    denoised_images = np.zeros_like(images)
-    endpoints = np.asarray(images.shape[1:])
-    midpoints = endpoints // 2
-
-# Create the main figure
-fig = plt.figure(figsize=(16, 8))
-fig.suptitle("Interactive FFT-based Noise Removal", fontsize=16)
-
-# Create subplots with more spacing and better layout
-ax_fft = fig.add_subplot(141)
-ax_phase = fig.add_subplot(142)
-ax_original = fig.add_subplot(143)
-ax_denoised = fig.add_subplot(144)
-
-# Set up axes
-for ax in [ax_fft, ax_phase, ax_original, ax_denoised]:
-    ax.set_xticks([])
-    ax.set_yticks([])
-    # Use 'auto' instead of 'equal' to better fill available space
-    ax.set_aspect('auto')
-
-# Add some spacing between subplots
-plt.tight_layout(rect=[0, 0.15, 1, 0.95])  # Leave space at bottom for controls
-
-# Set titles
-ax_fft.set_title("Log-Amplitude Spectrum\n(Draw/Remove Masks Here)")
-ax_phase.set_title("Phase Spectrum")
-ax_original.set_title("Original Image")
-ax_denoised.set_title("Denoised Image")
-
-# Calculate initial spectrum and vmin/vmax values
-if images is not None and images.size > 0:
-    spectrum_reference = np.log(np.abs(fft_images[current_frame]) + 1e-6)
-    phase_reference = np.angle(fft_images[current_frame])
-    fvmin = np.percentile(spectrum_reference, 0)
-    fvmax = np.percentile(spectrum_reference, 99)
-    
-    ivmin = np.percentile(images, 0)
-    ivmax = np.percentile(images, 99)
-else:
-    # Default values if no image is loaded
-    spectrum_reference = np.zeros((100, 100))
-    phase_reference = np.zeros((100, 100))
-    fvmin, fvmax = 0, 1
-    ivmin, ivmax = 0, 1
-
-# Create initial plots
-fft_plot = ax_fft.imshow(spectrum_reference, 
-                        cmap=cc.m_CET_L17_r,
-                        interpolation="bicubic",
-                        vmin=fvmin,
-                        vmax=fvmax)
-
-phase_plot = ax_phase.imshow(phase_reference, 
-                           cmap='hsv',
-                           interpolation="bicubic",
-                           vmin=-np.pi,
-                           vmax=np.pi)
-
-original_plot = ax_original.imshow(images[current_frame], 
-                                cmap=cc.m_CET_L1_r,
-                                interpolation="bicubic",
-                                vmin=ivmin,
-                                vmax=ivmax)
-
-denoised_plot = ax_denoised.imshow(denoised_images[current_frame], 
-                                cmap=cc.m_CET_L1_r,
-                                interpolation="bicubic",
-                                vmin=ivmin,
-                                vmax=ivmax)
-
-# Add a text annotation for when no file is loaded
-no_file_text = ax_original.text(0.5, 0.5, "No file loaded\nUse 'Load TIFF' button", 
-                              horizontalalignment='center',
-                              verticalalignment='center',
-                              transform=ax_original.transAxes,
-                              fontsize=14,
-                              color='white')
-
-# Hide the text when a file is loaded
-if len(sys.argv) > 1:
-    no_file_text.set_visible(False)
-
-# Create a slider axis and the slider
-slider_height = 0.03
-button_height = 0.04
-button_width = 0.12
-button_spacing = 0.02
-bottom_margin = 0.05
-
-ax_slider = plt.axes([0.25, bottom_margin, 0.5, slider_height])
-frame_slider = Slider(ax_slider, 'Frame', 0, max(num_frames-1, 1), valinit=0, valstep=1)
-
-# Create button axes and buttons
-ax_load = plt.axes([0.05, bottom_margin + slider_height + button_spacing, button_width, button_height])
-ax_draw = plt.axes([0.25, bottom_margin + slider_height + button_spacing, button_width, button_height])
-ax_remove = plt.axes([0.25 + button_width + button_spacing, bottom_margin + slider_height + button_spacing, button_width, button_height])
-ax_update = plt.axes([0.25 + 2*button_width + 2*button_spacing, bottom_margin + slider_height + button_spacing, button_width, button_height])
-ax_save = plt.axes([0.25 + 3*button_width + 3*button_spacing, bottom_margin + slider_height + button_spacing, button_width, button_height])
-
-btn_load = Button(ax_load, 'Load TIFF')
-btn_draw = Button(ax_draw, 'Draw Mask')
-btn_remove = Button(ax_remove, 'Remove Mask')
-btn_update = Button(ax_update, 'Update')
-btn_save = Button(ax_save, 'Save')
-
-# Variables to track the current mode and rectangle selector
-current_mode = 'draw'  # 'draw' or 'remove'
-selector = None
-temp_regions = []
-mask_patches = []  # To store visualization rectangles
+    try:
+        images = imread(Path(tiff_path), is_ome=False)
+        images -= images.min()
+        num_frames = images.shape[0]
+        
+        # Compute FFT of all images
+        fft_images = np.fft.fft2(images)
+        fft_images = np.fft.fftshift(fft_images)
+        
+        # Create a copy of fft_images for manipulation
+        masked_fft = fft_images.copy()
+        
+        # Calculate endpoints and midpoints for masking
+        endpoints = np.asarray(images.shape[1:])
+        midpoints = endpoints // 2
+        
+        # Initial mask regions - these are the ones from the original script
+        box_offset = (15, 150)  # y, x
+        box_size = [10, 200]    # y, x
+        mask_regions.append([
+            midpoints[0]+box_offset[0],
+            midpoints[0]+box_offset[0]+box_size[0],
+            midpoints[1]-box_offset[1],
+            midpoints[1]-box_offset[1]+box_size[1]
+        ])
+        mask_regions.append([
+            midpoints[0]-box_offset[0]-box_size[0],
+            midpoints[0]-box_offset[0],
+            midpoints[1]+box_offset[1]-box_size[1],
+            midpoints[1]+box_offset[1]
+        ])
+        
+        # Apply initial masks
+        for region in mask_regions:
+            y1, y2, x1, x2 = region
+            masked_fft[:, y1:y2, x1:x2] = 0
+        
+        # Prepare initial denoised images
+        reconstructed_images = np.fft.ifftshift(masked_fft)
+        reconstructed_images = np.fft.ifft2(reconstructed_images)
+        denoised_images = np.abs(reconstructed_images)
+        
+        return True
+    except Exception as e:
+        print(f"Error loading file: {str(e)}")
+        return False
 
 # Function to update the plots based on the current frame
 def update_plots(frame):
+    global fft_plot, phase_plot, original_plot, denoised_plot
+    
     if images is None or images.size == 0 or frame >= images.shape[0]:
         return
     
@@ -333,7 +212,7 @@ def clear_mask_visualizations():
 
 # Function to load a new TIFF file
 def on_load_click(event):
-    global no_file_text
+    global no_file_text, frame_slider
     
     # Create root Tk window and hide it
     root = Tk()
@@ -351,7 +230,7 @@ def on_load_click(event):
     # If a file was selected
     if file_path:
         # Initialize the file
-        success = initialize_file(file_path)
+        success = load_file(file_path)
         
         if success:
             # Hide the "no file loaded" text
@@ -364,7 +243,6 @@ def on_load_click(event):
             
             # Update plots with the new data
             # Recalculate display ranges for intensity scaling
-            global ivmin, ivmax, fvmin, fvmax
             ivmin = np.percentile(images, 0)
             ivmax = np.percentile(images, 99)
             spectrum = np.log(np.abs(fft_images[0]) + 1e-6)
@@ -511,22 +389,6 @@ def on_select(eclick, erelease):
         # Redraw the remaining mask visualizations
         show_mask_visualizations()
 
-# Connect callbacks
-frame_slider.on_changed(on_slider_change)
-btn_load.on_clicked(on_load_click)
-btn_draw.on_clicked(on_draw_click)
-btn_remove.on_clicked(on_remove_click)
-btn_update.on_clicked(on_update_click)
-btn_save.on_clicked(on_save_click)
-
-# Create the rectangle selector
-selector = RectangleSelector(ax_fft, on_select, 
-                           interactive=True, button=[1, 3])
-selector.set_active(True)
-
-# Connect key press event for toggling the selector
-plt.connect('key_press_event', toggle_selector)
-
 # Set up a callback to save when the figure is closed
 def on_close(event):
     if tiff_path != "No file loaded" and denoised_images is not None:
@@ -535,12 +397,172 @@ def on_close(event):
         clear_mask_visualizations()
         save_images()
 
-fig.canvas.mpl_connect('close_event', on_close)
+def main():
+    global fig, ax_fft, ax_phase, ax_original, ax_denoised
+    global fft_plot, phase_plot, original_plot, denoised_plot
+    global frame_slider, no_file_text, selector, current_mode
+    global images, num_frames, tiff_path, output_filename
+    
+    # Initialize empty data if no file is provided
+    images = np.zeros((1, 100, 100), dtype=np.float32)
+    num_frames = 1
+    tiff_path = "No file loaded"
+    output_filename = "No file loaded"
+    
+    # These will be initialized when a file is loaded
+    global fft_images, masked_fft, denoised_images, endpoints, midpoints
+    fft_images = np.zeros_like(images, dtype=np.complex64)
+    masked_fft = fft_images.copy()
+    denoised_images = np.zeros_like(images)
+    endpoints = np.asarray(images.shape[1:])
+    midpoints = endpoints // 2
+    
+    # Check for command-line arguments
+    initial_file = None
+    if len(sys.argv) > 1:
+        initial_file = sys.argv[1]
+        if not os.path.exists(initial_file):
+            print(f"Error: File {initial_file} does not exist")
+            sys.exit(1)
+    
+    # Create the main figure
+    fig = plt.figure(figsize=(16, 8))
+    fig.suptitle("Interactive FFT-based Noise Removal", fontsize=16)
+    
+    # Create subplots with more spacing and better layout
+    ax_fft = fig.add_subplot(141)
+    ax_phase = fig.add_subplot(142)
+    ax_original = fig.add_subplot(143)
+    ax_denoised = fig.add_subplot(144)
+    
+    # Set up axes
+    for ax in [ax_fft, ax_phase, ax_original, ax_denoised]:
+        ax.set_xticks([])
+        ax.set_yticks([])
+        # Use 'auto' instead of 'equal' to better fill available space
+        ax.set_aspect('auto')
+    
+    # Add some spacing between subplots
+    plt.tight_layout(rect=[0, 0.15, 1, 0.95])  # Leave space at bottom for controls
+    
+    # Set titles
+    ax_fft.set_title("Log-Amplitude Spectrum\n(Draw/Remove Masks Here)")
+    ax_phase.set_title("Phase Spectrum")
+    ax_original.set_title("Original Image")
+    ax_denoised.set_title("Denoised Image")
+    
+    # Create default data for plots
+    spectrum_reference = np.zeros((100, 100))
+    phase_reference = np.zeros((100, 100))
+    fvmin, fvmax = 0, 1
+    ivmin, ivmax = 0, 1
+    
+    # Create initial plots
+    fft_plot = ax_fft.imshow(spectrum_reference, 
+                            cmap=cc.m_CET_L17_r,
+                            interpolation="bicubic",
+                            vmin=fvmin,
+                            vmax=fvmax)
+    
+    phase_plot = ax_phase.imshow(phase_reference, 
+                               cmap='hsv',
+                               interpolation="bicubic",
+                               vmin=-np.pi,
+                               vmax=np.pi)
+    
+    original_plot = ax_original.imshow(images[current_frame], 
+                                    cmap=cc.m_CET_L1_r,
+                                    interpolation="bicubic",
+                                    vmin=ivmin,
+                                    vmax=ivmax)
+    
+    denoised_plot = ax_denoised.imshow(denoised_images[current_frame], 
+                                    cmap=cc.m_CET_L1_r,
+                                    interpolation="bicubic",
+                                    vmin=ivmin,
+                                    vmax=ivmax)
+    
+    # Add a text annotation for when no file is loaded
+    no_file_text = ax_original.text(0.5, 0.5, "No file loaded\nUse 'Load TIFF' button", 
+                                  horizontalalignment='center',
+                                  verticalalignment='center',
+                                  transform=ax_original.transAxes,
+                                  fontsize=14,
+                                  color='white')
+    
+    # Create slider and buttons
+    slider_height = 0.03
+    button_height = 0.04
+    button_width = 0.12
+    button_spacing = 0.02
+    bottom_margin = 0.05
+    
+    ax_slider = plt.axes([0.25, bottom_margin, 0.5, slider_height])
+    frame_slider = Slider(ax_slider, 'Frame', 0, max(num_frames-1, 1), valinit=0, valstep=1)
+    
+    # Create button axes and buttons
+    ax_load = plt.axes([0.05, bottom_margin + slider_height + button_spacing, button_width, button_height])
+    ax_draw = plt.axes([0.25, bottom_margin + slider_height + button_spacing, button_width, button_height])
+    ax_remove = plt.axes([0.25 + button_width + button_spacing, bottom_margin + slider_height + button_spacing, button_width, button_height])
+    ax_update = plt.axes([0.25 + 2*button_width + 2*button_spacing, bottom_margin + slider_height + button_spacing, button_width, button_height])
+    ax_save = plt.axes([0.25 + 3*button_width + 3*button_spacing, bottom_margin + slider_height + button_spacing, button_width, button_height])
+    
+    btn_load = Button(ax_load, 'Load TIFF')
+    btn_draw = Button(ax_draw, 'Draw Mask')
+    btn_remove = Button(ax_remove, 'Remove Mask')
+    btn_update = Button(ax_update, 'Update')
+    btn_save = Button(ax_save, 'Save')
+    
+    # Connect callbacks
+    frame_slider.on_changed(on_slider_change)
+    btn_load.on_clicked(on_load_click)
+    btn_draw.on_clicked(on_draw_click)
+    btn_remove.on_clicked(on_remove_click)
+    btn_update.on_clicked(on_update_click)
+    btn_save.on_clicked(on_save_click)
+    
+    # Create the rectangle selector
+    selector = RectangleSelector(ax_fft, on_select, 
+                               interactive=True, button=[1, 3])
+    selector.set_active(True)
+    
+    # Connect key press event for toggling the selector
+    plt.connect('key_press_event', toggle_selector)
+    
+    # Set up a callback to save when the figure is closed
+    fig.canvas.mpl_connect('close_event', on_close)
+    
+    # If a file was provided as a command line argument, load it
+    if initial_file:
+        no_file_text.set_visible(False)
+        if load_file(initial_file):
+            # Update slider
+            frame_slider.valmax = num_frames - 1
+            frame_slider.ax.set_xlim(0, num_frames - 1)
+            
+            # Update plot ranges based on loaded data
+            ivmin = np.percentile(images, 0)
+            ivmax = np.percentile(images, 99)
+            spectrum = np.log(np.abs(fft_images[0]) + 1e-6)
+            fvmin = np.percentile(spectrum, 0)
+            fvmax = np.percentile(spectrum, 99)
+            
+            # Update plot limits
+            original_plot.set_clim(vmin=ivmin, vmax=ivmax)
+            denoised_plot.set_clim(vmin=ivmin, vmax=ivmax)
+            fft_plot.set_clim(vmin=fvmin, vmax=fvmax)
+            phase_plot.set_clim(vmin=-np.pi, vmax=np.pi)
+            
+            # Update the plots
+            update_plots(0)
+    
+    # Show the figure (non-blocking)
+    plt.show(block=False)
+    
+    # Keep the figure alive
+    plt.pause(0.1)
+    input("Press Enter to close the figure and save the result...")
+    plt.close(fig)
 
-# Show the figure (non-blocking)
-plt.show(block=False)
-
-# Keep the figure alive
-plt.pause(0.1)
-input("Press Enter to close the figure and save the result...")
-plt.close(fig)
+if __name__ == "__main__":
+    main()
