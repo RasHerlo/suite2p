@@ -28,10 +28,12 @@ midpoints = None
 # GUI elements
 fig = None
 ax_fft = None
+ax_fft_zoom = None  # New zoomed FFT axis
 ax_phase = None
 ax_original = None
 ax_denoised = None
 fft_plot = None
+fft_zoom_plot = None  # New zoomed FFT plot
 phase_plot = None
 original_plot = None
 denoised_plot = None
@@ -105,7 +107,7 @@ def load_file(file_path):
 
 # Function to update the plots based on the current frame
 def update_plots(frame):
-    global fft_plot, phase_plot, original_plot, denoised_plot
+    global fft_plot, fft_zoom_plot, phase_plot, original_plot, denoised_plot
     
     if images is None or images.size == 0 or frame >= images.shape[0]:
         return
@@ -118,20 +120,34 @@ def update_plots(frame):
     spectrum = np.log(np.abs(fft_images[frame]) + 1e-6)
     fft_plot.set_data(spectrum)
     
+    # Update zoomed FFT spectrum
+    h, w = images.shape[1], images.shape[2]
+    center_y, center_x = h // 2, w // 2
+    zoom_size = 20  # 20 pixels in each direction from center
+    
+    # Extract the region centered on the FFT center
+    y_start = max(0, center_y - zoom_size)
+    y_end = min(h, center_y + zoom_size + 1)
+    x_start = max(0, center_x - zoom_size)
+    x_end = min(w, center_x + zoom_size + 1)
+    
+    zoom_spectrum = spectrum[y_start:y_end, x_start:x_end]
+    fft_zoom_plot.set_data(zoom_spectrum)
+    
     # Update phase image
     phase_data = np.angle(fft_images[frame])
     phase_plot.set_data(phase_data)
     
-    # Reset extents for all plots to ensure proper display
-    h, w = images.shape[1], images.shape[2]
+    # Set extents properly to fill out the subplot areas
     original_plot.set_extent([0, w, h, 0])
     denoised_plot.set_extent([0, w, h, 0])
     fft_plot.set_extent([0, w, h, 0])
     phase_plot.set_extent([0, w, h, 0])
     
-    # Remove any explicit limits to let the image fill the available space
-    for ax in [ax_fft, ax_phase, ax_original, ax_denoised]:
-        ax.autoscale()
+    # For the zoom plot, explicitly set the extent in coordinates that make sense
+    # for FFT visualization - with (0,0) at the center
+    zoom_h, zoom_w = zoom_spectrum.shape
+    fft_zoom_plot.set_extent([-zoom_size, zoom_size, -zoom_size, zoom_size])
     
     # Redraw
     fig.canvas.draw_idle()
@@ -253,6 +269,7 @@ def on_load_click(event):
             original_plot.set_clim(vmin=ivmin, vmax=ivmax)
             denoised_plot.set_clim(vmin=ivmin, vmax=ivmax)
             fft_plot.set_clim(vmin=fvmin, vmax=fvmax)
+            fft_zoom_plot.set_clim(vmin=fvmin, vmax=fvmax)
             phase_plot.set_clim(vmin=-np.pi, vmax=np.pi)
             
             # Set the data for all plots
@@ -398,8 +415,8 @@ def on_close(event):
         save_images()
 
 def main():
-    global fig, ax_fft, ax_phase, ax_original, ax_denoised
-    global fft_plot, phase_plot, original_plot, denoised_plot
+    global fig, ax_fft, ax_fft_zoom, ax_phase, ax_original, ax_denoised
+    global fft_plot, fft_zoom_plot, phase_plot, original_plot, denoised_plot
     global frame_slider, no_file_text, selector, current_mode
     global images, num_frames, tiff_path, output_filename
     
@@ -426,27 +443,33 @@ def main():
             sys.exit(1)
     
     # Create the main figure
-    fig = plt.figure(figsize=(16, 8))
+    fig = plt.figure(figsize=(18, 8))  # Made the figure wider to accommodate the new subplot
     fig.suptitle("Interactive FFT-based Noise Removal", fontsize=16)
     
-    # Create subplots with more spacing and better layout
-    ax_fft = fig.add_subplot(141)
-    ax_phase = fig.add_subplot(142)
-    ax_original = fig.add_subplot(143)
-    ax_denoised = fig.add_subplot(144)
+    # Create subplots with more spacing and better layout - changed from 141 to 151, etc.
+    ax_fft = fig.add_subplot(151)
+    ax_fft_zoom = fig.add_subplot(152)
+    ax_phase = fig.add_subplot(153)
+    ax_original = fig.add_subplot(154)
+    ax_denoised = fig.add_subplot(155)
     
-    # Set up axes
-    for ax in [ax_fft, ax_phase, ax_original, ax_denoised]:
+    # Set up axes to fill their areas better
+    for ax in [ax_fft, ax_phase, ax_original, ax_denoised, ax_fft_zoom]:
         ax.set_xticks([])
         ax.set_yticks([])
-        # Use 'auto' instead of 'equal' to better fill available space
-        ax.set_aspect('auto')
+        # Use 'equal' for FFT plots to maintain proper scale
+        # Use 'auto' for image plots to fill the subplot area
+        if ax in [ax_original, ax_denoised]:
+            ax.set_aspect('auto')
+        else:
+            ax.set_aspect('equal', adjustable='box')
     
     # Add some spacing between subplots
     plt.tight_layout(rect=[0, 0.15, 1, 0.95])  # Leave space at bottom for controls
     
     # Set titles
     ax_fft.set_title("Log-Amplitude Spectrum\n(Draw/Remove Masks Here)")
+    ax_fft_zoom.set_title("Zoomed Center Region\n(±20 pixels)")
     ax_phase.set_title("Phase Spectrum")
     ax_original.set_title("Original Image")
     ax_denoised.set_title("Denoised Image")
@@ -459,23 +482,49 @@ def main():
     
     # Create initial plots
     fft_plot = ax_fft.imshow(spectrum_reference, 
-                            cmap=cc.m_CET_L17_r,
-                            interpolation="bicubic",
-                            vmin=fvmin,
-                            vmax=fvmax)
+                           cmap=cc.m_CET_L17_r,
+                           interpolation="bicubic",
+                           vmin=fvmin,
+                           vmax=fvmax)
     
+    # Create zoomed FFT plot
+    zoom_size = 20
+    
+    # Create zoomed plot with same colormap as main FFT plot
+    # Initially we'll create it with a small empty array; it will be updated when we load data
+    fft_zoom_plot = ax_fft_zoom.imshow(np.zeros((2*zoom_size+1, 2*zoom_size+1)), 
+                                      cmap=cc.m_CET_L17_r,
+                                      interpolation="bicubic",
+                                      vmin=fvmin,
+                                      vmax=fvmax,
+                                      extent=[-zoom_size, zoom_size, -zoom_size, zoom_size])
+    
+    # Set tick marks and labels for every 5 pixels, centered on (0,0)
+    ticks = np.arange(-zoom_size, zoom_size+1, 5)
+    ax_fft_zoom.set_xticks(ticks)
+    ax_fft_zoom.set_yticks(ticks)
+    ax_fft_zoom.set_xticklabels(ticks)
+    ax_fft_zoom.set_yticklabels(ticks)
+    
+    # Draw a crosshair at the center of the zoomed plot (at 0,0)
+    ax_fft_zoom.axhline(y=0, color='r', linestyle='-', alpha=0.3)
+    ax_fft_zoom.axvline(x=0, color='r', linestyle='-', alpha=0.3)
+    
+    # Create the phase plot
     phase_plot = ax_phase.imshow(phase_reference, 
                                cmap='hsv',
                                interpolation="bicubic",
                                vmin=-np.pi,
                                vmax=np.pi)
     
+    # Create the original image plot
     original_plot = ax_original.imshow(images[current_frame], 
                                     cmap=cc.m_CET_L1_r,
                                     interpolation="bicubic",
                                     vmin=ivmin,
                                     vmax=ivmax)
     
+    # Create the denoised image plot
     denoised_plot = ax_denoised.imshow(denoised_images[current_frame], 
                                     cmap=cc.m_CET_L1_r,
                                     interpolation="bicubic",
@@ -551,6 +600,7 @@ def main():
             original_plot.set_clim(vmin=ivmin, vmax=ivmax)
             denoised_plot.set_clim(vmin=ivmin, vmax=ivmax)
             fft_plot.set_clim(vmin=fvmin, vmax=fvmax)
+            fft_zoom_plot.set_clim(vmin=fvmin, vmax=fvmax)
             phase_plot.set_clim(vmin=-np.pi, vmax=np.pi)
             
             # Update the plots
