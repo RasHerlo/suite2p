@@ -120,7 +120,7 @@ def update_plots(frame):
     # Get dimensions
     h, w = images.shape[1], images.shape[2]
     center_y, center_x = h // 2, w // 2
-    zoom_size = 20  # 20 pixels in each direction from center
+    zoom_size = 50  # 50 pixels in each direction from center
     
     # Extract the region centered on the FFT center
     y_start = max(0, center_y - zoom_size)
@@ -1012,7 +1012,7 @@ def main():
     
     # Set titles for the top row (logarithmic)
     ax_fft.set_title("Log-Amplitude Spectrum\n(CLICK HERE TO MASK)", color='red')
-    ax_fft_zoom.set_title("Zoomed Center Region\n(±20 pixels)")
+    ax_fft_zoom.set_title("Zoomed Center Region\n(±50 pixels)")
     ax_phase.set_title("Phase Spectrum")
     ax_original.set_title("Original Image")
     ax_denoised.set_title("Denoised Image")
@@ -1036,7 +1036,7 @@ def main():
                            vmax=fvmax)
     
     # Create zoomed FFT plot (logarithmic)
-    zoom_size = 20
+    zoom_size = 50
     
     # Create zoomed plot with same colormap as main FFT plot (logarithmic)
     fft_zoom_plot = ax_fft_zoom.imshow(np.zeros((2*zoom_size+1, 2*zoom_size+1)), 
@@ -1046,8 +1046,8 @@ def main():
                                       vmax=fvmax,
                                       extent=[-zoom_size, zoom_size, -zoom_size, zoom_size])
     
-    # Set tick marks and labels for every 5 pixels, centered on (0,0)
-    ticks = np.arange(-zoom_size, zoom_size+1, 5)
+    # Set tick marks and labels for every 10 pixels, centered on (0,0)
+    ticks = np.arange(-zoom_size, zoom_size+1, 10)
     ax_fft_zoom.set_xticks(ticks)
     ax_fft_zoom.set_yticks(ticks)
     ax_fft_zoom.set_xticklabels(ticks)
@@ -1068,7 +1068,7 @@ def main():
                                                   interpolation="bicubic",
                                                   extent=[-zoom_size, zoom_size, -zoom_size, zoom_size])
     
-    # Set tick marks and labels for every 5 pixels on the linear zoomed plot
+    # Set tick marks and labels for every 10 pixels on the linear zoomed plot
     ax_fft_zoom_linear.set_xticks(ticks)
     ax_fft_zoom_linear.set_yticks(ticks)
     ax_fft_zoom_linear.set_xticklabels(ticks)
@@ -1236,7 +1236,7 @@ def main():
             
             # For zoomed region, use a different scale
             center_y, center_x = fft_amplitude_0.shape[0]//2, fft_amplitude_0.shape[1]//2
-            zoom_size = 20
+            zoom_size = 50
             y_start = max(0, center_y - zoom_size)
             y_end = min(fft_amplitude_0.shape[0], center_y + zoom_size + 1)
             x_start = max(0, center_x - zoom_size)
