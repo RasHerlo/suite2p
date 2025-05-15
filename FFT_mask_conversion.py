@@ -10,6 +10,9 @@
 #      * x0, y0 are center coordinates in FFT space (0,0 is the center of frequency domain)
 #      * dX, dY are dimensions of the mask extending in each direction
 #    - Example: [0 0 7 7] or [0 0 100 0] [0 0 0 100]
+#    OR
+#    - One or more circular/ring masks in parenthesis notation: (inner_radius,outer_radius)
+#    - Example: (0,45) for a circle or (7,45) for a ring
 #
 # Outputs:
 #    - Denoised .tif stack (saved as original_name_masked.tif)
@@ -32,9 +35,16 @@ def parse_arguments():
     parser.add_argument('input_path', type=str, 
                         help='Full path to the .tif file')
     
-    parser.add_argument('mask_brackets', type=str, nargs='+',
-                        help='One or more mask coordinates in bracket notation: [x0 y0 dX dY]. '
+    # Create a mutually exclusive group for mask type
+    mask_group = parser.add_mutually_exclusive_group(required=True)
+    
+    mask_group.add_argument('--rect', dest='rect_masks', type=str, nargs='+',
+                        help='One or more rectangular mask coordinates in bracket notation: [x0 y0 dX dY]. '
                              'Example: [0 0 7 7] or [0 0 100 0] [0 0 0 100]')
+    
+    mask_group.add_argument('--circle', dest='circle_masks', type=str, nargs='+',
+                        help='One or more circular/ring mask coordinates in parenthesis notation: (inner_radius,outer_radius). '
+                             'Example: (0,45) for a circle or (7,45) for a ring')
     
     return parser.parse_args()
 
@@ -67,9 +77,41 @@ def parse_mask_brackets(mask_brackets):
     
     return masks
 
-def create_mask(shape, mask_coords_list):
+def parse_circular_masks(mask_strings):
     """
-    Create a binary mask for FFT filtering from multiple coordinate sets.
+    Parse circular mask coordinates from parenthesis notation.
+    
+    Parameters:
+    - mask_strings: List of strings with parenthesis notation like "(0,45)"
+    
+    Returns:
+    - List of mask coordinates as [inner_radius, outer_radius]
+    """
+    masks = []
+    
+    for mask_str in mask_strings:
+        # Extract values using regex
+        match = re.match(r'\(([^)]+)\)', mask_str)
+        if match:
+            # Extract the values and convert to float
+            values = match.group(1).split(',')
+            if len(values) == 2:
+                inner = float(values[0])
+                outer = float(values[1])
+                if inner < outer:  # Validation
+                    masks.append([inner, outer])
+                else:
+                    print(f"Warning: Inner radius must be less than outer radius: {mask_str}")
+            else:
+                print(f"Warning: Invalid circular mask format: {mask_str}")
+        else:
+            print(f"Warning: Invalid circular mask format: {mask_str}")
+    
+    return masks
+
+def create_rectangular_mask(shape, mask_coords_list):
+    """
+    Create a binary mask for FFT filtering from multiple rectangular coordinate sets.
     
     Parameters:
     - shape: Shape of the FFT array (num_frames, height, width)
@@ -109,7 +151,50 @@ def create_mask(shape, mask_coords_list):
     
     return mask
 
-def save_fft_visualization(fft_mean, mask, output_path, mask_coords_list):
+def create_circular_mask(shape, mask_coords_list):
+    """
+    Create a binary mask for FFT filtering from multiple circular/ring coordinate sets.
+    
+    Parameters:
+    - shape: Shape of the FFT array (num_frames, height, width)
+    - mask_coords_list: List of [inner_radius, outer_radius] coordinates for circular masks
+    
+    Returns:
+    - Binary mask (1=keep, 0=mask out) with shape (height, width)
+    """
+    _, h, w = shape
+    
+    # Create a mask filled with ones (keep everything by default)
+    mask = np.ones((h, w), dtype=bool)
+    
+    # Get the center of the FFT
+    cy, cx = h // 2, w // 2
+    
+    # Create coordinate grids
+    y, x = np.ogrid[:h, :w]
+    
+    # Convert to coordinates relative to center
+    y = y - cy
+    x = x - cx
+    
+    # Calculate squared distances for efficiency
+    dist_squared = x*x + y*y
+    
+    # Apply each mask set
+    for mask_coords in mask_coords_list:
+        # Extract mask coordinates
+        inner_radius, outer_radius = mask_coords
+        
+        # Create the mask (True for areas to keep, False for areas to mask out)
+        # We want to mask out areas where inner_radius^2 <= dist_squared <= outer_radius^2
+        ring_mask = (dist_squared < inner_radius**2) | (dist_squared > outer_radius**2)
+        
+        # Apply this mask (keep only where both masks are True)
+        mask = mask & ring_mask
+    
+    return mask
+
+def save_fft_visualization(fft_mean, mask, output_path, mask_coords_list, mask_type):
     """
     Save a visualization of the mean FFT with the masked areas highlighted.
     
@@ -117,7 +202,8 @@ def save_fft_visualization(fft_mean, mask, output_path, mask_coords_list):
     - fft_mean: Mean of the log-amplitude FFT
     - mask: Binary mask (1=keep, 0=mask out)
     - output_path: Path to save the visualization image
-    - mask_coords_list: List of [x0, y0, dX, dY] coordinates for masks
+    - mask_coords_list: List of mask coordinates
+    - mask_type: Type of mask ('rect' or 'circle')
     """
     # Create a new figure
     plt.figure(figsize=(10, 8))
@@ -144,8 +230,11 @@ def save_fft_visualization(fft_mean, mask, output_path, mask_coords_list):
     rgb_img[~mask, 1] = 0.0  # Green component
     rgb_img[~mask, 2] = 0.8  # Blue component
     
-    # Format mask coordinates for title
-    mask_str = ' '.join([f'[{int(x0)},{int(y0)},{int(dx)},{int(dy)}]' for x0, y0, dx, dy in mask_coords_list])
+    # Format mask coordinates for title based on mask type
+    if mask_type == 'rect':
+        mask_str = ' '.join([f'[{int(x0)},{int(y0)},{int(dx)},{int(dy)}]' for x0, y0, dx, dy in mask_coords_list])
+    else:  # circle
+        mask_str = ' '.join([f'({int(inner)},{int(outer)})' for inner, outer in mask_coords_list])
     
     # Display the image with mask coordinates in title
     plt.imshow(rgb_img)
@@ -157,13 +246,14 @@ def save_fft_visualization(fft_mean, mask, output_path, mask_coords_list):
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
 
-def process_tif_stack(input_path, mask_coords_list):
+def process_tif_stack(input_path, mask_coords_list, mask_type):
     """
     Process a .tif stack by applying FFT masks.
     
     Parameters:
     - input_path: Full path to the .tif file
-    - mask_coords_list: List of [x0, y0, dX, dY] coordinates for masks
+    - mask_coords_list: List of mask coordinates
+    - mask_type: Type of mask ('rect' or 'circle')
     """
     # Ensure the input file exists
     if not os.path.exists(input_path):
@@ -174,23 +264,29 @@ def process_tif_stack(input_path, mask_coords_list):
     dir_path = os.path.dirname(input_path)
     file_name = os.path.basename(input_path)
     
-    # Create a simplified mask identifier string for filenames
-    # Format: number_of_masks_firstMaskCoordinatesWithoutMinusSigns
+    # Create a mask identifier string for filenames based on mask type
     num_masks = len(mask_coords_list)
+    mask_id = ""
     
     if num_masks > 0:
-        # Get first mask coordinates
-        x0, y0, dx, dy = mask_coords_list[0]
-        # Remove minus signs and convert to integers
-        first_mask_str = f"{abs(int(x0))}{abs(int(y0))}{abs(int(dx))}{abs(int(dy))}"
-        mask_id = f"{num_masks}_{first_mask_str}"
+        if mask_type == 'rect':
+            # For rectangular masks - use existing format
+            x0, y0, dx, dy = mask_coords_list[0]
+            first_mask_str = f"{abs(int(x0))}{abs(int(y0))}{abs(int(dx))}{abs(int(dy))}"
+            mask_id = f"{num_masks}_{first_mask_str}"
+        else:  # circle
+            # For circular masks - use i{inner}_o{outer} format for each mask
+            mask_parts = []
+            for inner, outer in mask_coords_list:
+                mask_parts.append(f"_i{int(inner)}_o{int(outer)}")
+            mask_id = ''.join(mask_parts)
     else:
         mask_id = "0_none"
     
     # Generate output file paths with mask coordinates
     base_name = os.path.splitext(file_name)[0]
-    output_tif = os.path.join(dir_path, f"{base_name}_masked_{mask_id}.tif")
-    output_fft_img = os.path.join(dir_path, f"{base_name}_fft_mask_{mask_id}.png")
+    output_tif = os.path.join(dir_path, f"{base_name}_masked{mask_id}.tif")
+    output_fft_img = os.path.join(dir_path, f"{base_name}_fft_mask{mask_id}.png")
     
     # Load the .tif stack
     print(f"Loading {input_path}...")
@@ -202,7 +298,7 @@ def process_tif_stack(input_path, mask_coords_list):
     
     num_frames = images.shape[0]
     print(f"Loaded {num_frames} frames with shape {images.shape[1:]}.")
-    print(f"Applying {len(mask_coords_list)} mask(s)")
+    print(f"Applying {len(mask_coords_list)} {mask_type} mask(s)")
     
     # Compute FFT for all frames
     print("Computing FFT...")
@@ -213,9 +309,12 @@ def process_tif_stack(input_path, mask_coords_list):
     fft_amplitude = np.abs(fft_images)
     fft_mean = np.mean(fft_amplitude, axis=0)
     
-    # Create the binary mask
-    print(f"Creating masks...")
-    mask = create_mask(images.shape, mask_coords_list)
+    # Create the binary mask based on mask type
+    print(f"Creating {mask_type} masks...")
+    if mask_type == 'rect':
+        mask = create_rectangular_mask(images.shape, mask_coords_list)
+    else:  # circle
+        mask = create_circular_mask(images.shape, mask_coords_list)
     
     # Apply the mask to all frames
     # We're using broadcasting to apply the 2D mask to all frames
@@ -235,7 +334,7 @@ def process_tif_stack(input_path, mask_coords_list):
     
     # Save FFT visualization with mask
     print(f"Saving FFT visualization to {output_fft_img}...")
-    save_fft_visualization(fft_mean, mask, output_fft_img, mask_coords_list)
+    save_fft_visualization(fft_mean, mask, output_fft_img, mask_coords_list, mask_type)
     
     print("Processing complete!")
     return True
@@ -245,15 +344,20 @@ def main():
     # Parse command-line arguments
     args = parse_arguments()
     
-    # Parse mask brackets into coordinates
-    mask_coords_list = parse_mask_brackets(args.mask_brackets)
+    # Determine mask type and parse mask coordinates
+    if args.rect_masks:
+        mask_type = 'rect'
+        mask_coords_list = parse_mask_brackets(args.rect_masks)
+    else:
+        mask_type = 'circle'
+        mask_coords_list = parse_circular_masks(args.circle_masks)
     
     if not mask_coords_list:
-        print("Error: No valid mask coordinates provided.")
+        print(f"Error: No valid {mask_type} mask coordinates provided.")
         return
     
     # Process the .tif stack
-    process_tif_stack(args.input_path, mask_coords_list)
+    process_tif_stack(args.input_path, mask_coords_list, mask_type)
 
 if __name__ == "__main__":
     main() 
