@@ -22,6 +22,7 @@ import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from matplotlib.widgets import TextBox, Slider, Button
 import pandas as pd
 
 
@@ -284,46 +285,38 @@ class ROISelector:
     
     def calculate_roi_components(self):
         """
-        Calculate the number of connected components for each ROI.
-        
-        Uses 8-connectivity (diagonal connections are included).
+        Calculate number of connected components for each ROI.
         
         Returns:
         --------
         np.ndarray
-            Array containing the number of connected components for each ROI.
+            Array of component counts for each ROI.
         """
-        from scipy import ndimage
-        import numpy as np
+        print("Calculating connected components...")
+        component_counts = np.zeros(len(self.stat), dtype=int)
         
-        component_counts = np.zeros(len(self.stat), dtype=np.int32)
-        
-        # Get image dimensions from ops
-        Ly, Lx = self.ops['Ly'], self.ops['Lx']
-        
-        for i, roi in enumerate(tqdm(self.stat, desc="Calculating connected components")):
-            # Create a blank mask for this ROI
-            mask = np.zeros((Ly, Lx), dtype=bool)
+        for i, roi in enumerate(self.stat):
+            # Get ROI pixels
+            ypix = roi['ypix']
+            xpix = roi['xpix']
             
-            # Fill in the mask with the ROI pixels
-            y_coords = roi['ypix']
-            x_coords = roi['xpix']
+            # Create binary mask
+            mask = np.zeros((self.ops['Ly'], self.ops['Lx']), dtype=bool)
+            mask[ypix, xpix] = True
             
-            # Make sure coordinates are within bounds
-            valid_idx = (y_coords < Ly) & (x_coords < Lx) & (y_coords >= 0) & (x_coords >= 0)
-            y_coords = y_coords[valid_idx]
-            x_coords = x_coords[valid_idx]
+            # Label connected components
+            from skimage.measure import label
+            labeled = label(mask)
             
-            if len(y_coords) > 0:
-                mask[y_coords, x_coords] = True
-                
-                # Label connected components (structure=None uses 8-connectivity)
-                labeled, num_components = ndimage.label(mask, structure=np.ones((3, 3)))
-                
-                component_counts[i] = num_components
-            else:
-                # Edge case: no valid pixels
-                component_counts[i] = 0
+            # Count components, excluding those with 2 or fewer pixels
+            unique_labels = np.unique(labeled[labeled > 0])
+            valid_components = 0
+            for label_id in unique_labels:
+                component_size = np.sum(labeled == label_id)
+                if component_size > 2:  # Only count components with more than 2 pixels
+                    valid_components += 1
+            
+            component_counts[i] = valid_components
         
         return component_counts
     
@@ -374,13 +367,13 @@ class ROISelector:
         # Non-selected cells
         ax_nonselected = fig.add_subplot(grid[0:3, 5:8])
         
-        # Add space at the bottom for sliders
+        # Add space at the bottom for sliders and text boxes
         plt.subplots_adjust(bottom=0.25)
         
         # Add sliders for thresholds
         # Ellipticity slider
-        ax_ellipticity_slider = plt.axes([0.15, 0.15, 0.7, 0.03])
-        ellipticity_slider = plt.Slider(
+        ax_ellipticity_slider = plt.axes([0.15, 0.15, 0.6, 0.03])
+        ellipticity_slider = Slider(
             ax=ax_ellipticity_slider,
             label='Ellipticity Threshold',
             valmin=0.0,
@@ -389,9 +382,19 @@ class ROISelector:
             valstep=0.01
         )
         
+        # Ellipticity text box
+        ax_ellipticity_text = plt.axes([0.77, 0.15, 0.08, 0.03])
+        ellipticity_text = TextBox(
+            ax_ellipticity_text,
+            '',
+            initial=f'{initial_ellipticity_threshold:.2f}',
+            color='white',
+            hovercolor='white'
+        )
+        
         # Components slider
-        ax_components_slider = plt.axes([0.15, 0.1, 0.7, 0.03])
-        components_slider = plt.Slider(
+        ax_components_slider = plt.axes([0.15, 0.1, 0.6, 0.03])
+        components_slider = Slider(
             ax=ax_components_slider,
             label='Max Connected Components',
             valmin=1,
@@ -400,9 +403,19 @@ class ROISelector:
             valstep=1
         )
         
+        # Components text box
+        ax_components_text = plt.axes([0.77, 0.1, 0.08, 0.03])
+        components_text = TextBox(
+            ax_components_text,
+            '',
+            initial=str(initial_components_threshold),
+            color='white',
+            hovercolor='white'
+        )
+        
         # Add save button
         ax_button = plt.axes([0.75, 0.03, 0.2, 0.05])
-        save_button = plt.Button(ax_button, 'Save Selection')
+        save_button = Button(ax_button, 'Save Selection')
         
         # Define function to update plots when thresholds change
         def update(val=None):
@@ -493,6 +506,30 @@ class ROISelector:
             # Refresh the figure
             fig.canvas.draw_idle()
         
+        # Define function to handle ellipticity text box submission
+        def submit_ellipticity(text):
+            try:
+                value = float(text)
+                if 0 <= value <= 1:
+                    ellipticity_slider.set_val(value)
+                    ellipticity_text.set_color('black')
+                else:
+                    ellipticity_text.set_color('red')
+            except ValueError:
+                ellipticity_text.set_color('red')
+        
+        # Define function to handle components text box submission
+        def submit_components(text):
+            try:
+                value = int(float(text))
+                if 1 <= value <= min(10, np.max(component_counts)):
+                    components_slider.set_val(value)
+                    components_text.set_color('black')
+                else:
+                    components_text.set_color('red')
+            except ValueError:
+                components_text.set_color('red')
+        
         # Define function to save selection
         def save_selection(event):
             # Save the current selection
@@ -506,6 +543,8 @@ class ROISelector:
         # Connect callbacks
         ellipticity_slider.on_changed(update)
         components_slider.on_changed(update)
+        ellipticity_text.on_submit(submit_ellipticity)
+        components_text.on_submit(submit_components)
         save_button.on_clicked(save_selection)
         
         # Initial update
