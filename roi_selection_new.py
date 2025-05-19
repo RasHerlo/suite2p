@@ -195,8 +195,10 @@ class ROISelector:
         -----------
         ellipticity_threshold : float
             Threshold value (0-1) for ellipticity. Lower values are more circular.
+            Can be set via command line using --ellipticity.
         components_threshold : int
             Maximum number of connected components allowed.
+            Can be set via command line using --components.
         show_plot : bool
             Whether to display the interactive visualization.
             
@@ -559,12 +561,25 @@ def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='ROI Selection Tool for Suite2p outputs.')
     parser.add_argument('plane_dir', type=str, help='Path to Suite2p plane directory (e.g., plane0)')
+    parser.add_argument('--ellipticity', type=float, default=0.5,
+                      help='Initial ellipticity threshold (0-1, default: 0.5)')
+    parser.add_argument('--components', type=int, default=1,
+                      help='Initial maximum number of connected components (default: 1)')
     return parser.parse_args()
 
 
 def main():
     """Main function to run the script."""
     args = parse_args()
+    
+    # Validate threshold values
+    if not 0 <= args.ellipticity <= 1:
+        print("Error: Ellipticity threshold must be between 0 and 1")
+        return 1
+    
+    if args.components < 1:
+        print("Error: Component threshold must be a positive integer")
+        return 1
     
     # Initialize ROI selector
     try:
@@ -574,8 +589,8 @@ def main():
         # Automatically apply the ellipticity and components-based selection
         print("\nApplying ROI selection based on ellipticity and connected components...")
         selector.apply_selection_function('select_by_roi_ellipticity_and_components', 
-                                         ellipticity_threshold=0.5,
-                                         components_threshold=1)
+                                       ellipticity_threshold=args.ellipticity,
+                                       components_threshold=args.components)
         
         # The function above will display the interactive plot if available
     except Exception as e:
