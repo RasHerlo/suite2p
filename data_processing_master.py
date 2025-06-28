@@ -268,12 +268,11 @@ def run_suite2p_pipeline(input_path, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     
     # Check if suite2p output already exists and is complete
-    suite2p_dir = Path(output_dir) / 'suite2p'
-    plane0_dir = suite2p_dir / 'plane0'
+    suite2p_dir = Path(output_dir) / 'suite2p' / 'plane0'
     required_files = ['ops.npy', 'stat.npy', 'F.npy', 'Fneu.npy', 'iscell.npy', 'spks.npy']
     
-    if plane0_dir.exists():
-        existing_files = [f.name for f in plane0_dir.iterdir() if f.is_file()]
+    if suite2p_dir.exists():
+        existing_files = [f.name for f in suite2p_dir.iterdir() if f.is_file()]
         print(f"[DEBUG] Found existing suite2p files: {existing_files}")
         if all(f in existing_files for f in required_files):
             print("[DEBUG] All required suite2p files exist, skipping processing")
@@ -313,6 +312,9 @@ def process_roi_selection(suite2p_dir, output_dir):
     
     # Save updated files
     np.save(Path(suite2p_dir) / 'iscell.npy', new_iscell)
+    
+    # Update selector's iscell attribute with new selections
+    selector.iscell = new_iscell
     
     # Save ROI visualizations
     save_roi_visualizations(selector, output_dir)
@@ -383,6 +385,13 @@ def generate_rasterplots(suite2p_dir, output_dir):
     model.fit(selected_cells)
     sorted_cells = selected_cells[model.isort]
     
+    # Save rastermap model
+    rastermap_data = {
+        'isort': model.isort,  # Sorting indices
+        'embedding': model.embedding  # Final embedding
+    }
+    np.save(Path(suite2p_dir) / 'rastermap_model.npy', rastermap_data)
+    
     plt.figure(figsize=(15, 10))
     plt.imshow(sorted_cells, aspect='auto', cmap='viridis')
     plt.colorbar(label='Fluorescence')
@@ -392,12 +401,20 @@ def generate_rasterplots(suite2p_dir, output_dir):
     plt.tight_layout()
     plt.savefig(Path(output_dir) / 'rasterplot_sorted.png', dpi=150, bbox_inches='tight')
     plt.close()
+
+def generate_pickle_file(suite2p_dir, output_dir):
+    """Generate pickle file with selected traces data."""
+    # Load data
+    F = np.load(Path(suite2p_dir) / 'F.npy')
+    iscell = np.load(Path(suite2p_dir) / 'iscell.npy')
+    
+    # Get selected cells
+    selected_cells = F[iscell[:, 0] == 1]
     
     # Create and save pickle file with data
     data_dict = {
         'roi_indices': np.where(iscell[:, 0] == 1)[0],
-        'traces': selected_cells,
-        'rastermap_indices': model.isort
+        'traces': selected_cells
     }
     
     with open(Path(output_dir) / 'selected_traces.pkl', 'wb') as f:
@@ -492,7 +509,8 @@ def main():
             # Checkpoint 4: Rasterplot Generation
             raster_outputs = [
                 output_dir / 'rasterplot_default.png',
-                output_dir / 'rasterplot_sorted.png'
+                output_dir / 'rasterplot_sorted.png',
+                suite2p_dir / 'rastermap_model.npy'
             ]
             
             if not args.overwrite and all(f.exists() and f.stat().st_size > 0 for f in raster_outputs):
@@ -535,29 +553,6 @@ def main():
             continue
     
     return 0
-
-def generate_pickle_file(suite2p_dir, output_dir):
-    """Generate pickle file with selected traces data."""
-    # Load data
-    F = np.load(Path(suite2p_dir) / 'F.npy')
-    iscell = np.load(Path(suite2p_dir) / 'iscell.npy')
-    
-    # Get selected cells
-    selected_cells = F[iscell[:, 0] == 1]
-    
-    # Create rastermap model
-    model = Rastermap()
-    model.fit(selected_cells)
-    
-    # Create and save pickle file with data
-    data_dict = {
-        'roi_indices': np.where(iscell[:, 0] == 1)[0],
-        'traces': selected_cells,
-        'rastermap_indices': model.isort
-    }
-    
-    with open(Path(output_dir) / 'selected_traces.pkl', 'wb') as f:
-        pickle.dump(data_dict, f)
 
 if __name__ == "__main__":
     sys.exit(main()) 
