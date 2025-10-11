@@ -420,38 +420,109 @@ def generate_pickle_file(suite2p_dir, output_dir):
     with open(Path(output_dir) / 'selected_traces.pkl', 'wb') as f:
         pickle.dump(data_dict, f)
 
+def validate_suite2p_files(suite2p_dir):
+    """Validate that required Suite2p files exist."""
+    required_files = ['ops.npy', 'stat.npy', 'F.npy', 'Fneu.npy', 'iscell.npy', 'spks.npy']
+    missing_files = []
+    
+    suite2p_plane_dir = suite2p_dir / 'plane0'
+    
+    for file in required_files:
+        if not (suite2p_plane_dir / file).exists():
+            missing_files.append(file)
+    
+    if missing_files:
+        raise FileNotFoundError(f"Missing required Suite2p files in {suite2p_plane_dir}: {missing_files}")
+    
+    print(f"Validated Suite2p files in {suite2p_plane_dir}")
+    return suite2p_plane_dir
+
+def validate_manual_s2p_path(input_dir):
+    """Validate that the provided path is suitable for manual Suite2p processing."""
+    input_path = Path(input_dir)
+    
+    # Check if path exists
+    if not input_path.exists():
+        raise FileNotFoundError(f"Provided path does not exist: {input_path}")
+    
+    # Check if it's a directory
+    if not input_path.is_dir():
+        raise ValueError(f"Provided path is not a directory: {input_path}")
+    
+    # Check if directory name is 'derippled'
+    if input_path.name != 'derippled':
+        raise ValueError(f"Expected 'derippled' directory, but got: {input_path.name}")
+    
+    # Check if parent directory follows SUPPORT_Chan* pattern
+    parent_name = input_path.parent.name
+    if not (parent_name.startswith('SUPPORT_Chan') and parent_name[-1] in ['A', 'B']):
+        raise ValueError(f"Parent directory should be 'SUPPORT_ChanA' or 'SUPPORT_ChanB', but got: {parent_name}")
+    
+    # Extract channel type
+    channel_type = parent_name[-1]
+    
+    return str(input_path), channel_type
+
 def main():
     """Main function to run the processing pipeline."""
     parser = argparse.ArgumentParser(description='Master script for data processing pipeline.')
-    parser.add_argument('root_dir', type=str, help='Root directory containing channel folders')
+    parser.add_argument('input_dir', type=str, 
+                       help='Root directory containing channel folders (normal mode) or derippled directory path (--manual-s2p mode)')
     parser.add_argument('--overwrite', action='store_true', help='Force overwrite of existing files')
+    parser.add_argument('--manual-s2p', action='store_true', 
+                       help='Skip Suite2p pipeline and use existing Suite2p files in the expected location')
     args = parser.parse_args()
     
-    # Find channel folders
-    channel_folders = find_channel_folders(args.root_dir)
-    
-    if not channel_folders:
-        print("No channel folders found!")
-        return 1
-    
-    # Process each channel folder
-    for folder_path, channel_type in channel_folders.items():
-        print(f"\nProcessing {folder_path} (Channel {channel_type})...")
-        start_time = time.time()
-        
+    if args.manual_s2p:
+        # Manual Suite2p mode: process single derippled directory
         try:
+            derippled_path, channel_type = validate_manual_s2p_path(args.input_dir)
+            print(f"\nProcessing single directory in manual Suite2p mode: {derippled_path} (Channel {channel_type})")
+            
+            # Process this single directory
+            process_single_directory(derippled_path, channel_type, args)
+            
+        except (FileNotFoundError, ValueError) as e:
+            print(f"ERROR: {str(e)}")
+            return 1
+            
+    else:
+        # Normal mode: find and process multiple channel folders
+        channel_folders = find_channel_folders(args.input_dir)
+        
+        if not channel_folders:
+            print("No channel folders found!")
+            return 1
+        
+        # Process each channel folder
+        for folder_path, channel_type in channel_folders.items():
+            derippled_path = str(Path(folder_path) / 'derippled')
+            print(f"\nProcessing {folder_path} (Channel {channel_type})...")
+            process_single_directory(derippled_path, channel_type, args)
+    
+    return 0
+
+def process_single_directory(derippled_path, channel_type, args):
+    """Process a single derippled directory."""
+    start_time = time.time()
+    output_dir = Path(derippled_path)
+    
+    try:
+        # Create output directories
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize derippled_stack variable
+        derippled_stack = None
+        
+        # Checkpoint 1: FFT Processing (skip if using manual Suite2p)
+        if not args.manual_s2p:
             # Find raw stack
-            raw_stack_path = Path(folder_path) / 'suite2p files' / 'combined_registered.tif'
+            raw_stack_path = output_dir.parent / 'suite2p files' / 'combined_registered.tif'
             if not raw_stack_path.exists():
                 print(f"ERROR: Raw stack not found in {raw_stack_path}")
-                print("Skipping this folder and continuing with next...")
-                continue
+                print("Skipping this directory...")
+                return
             
-            # Create output directories
-            output_dir = Path(folder_path) / 'derippled'
-            output_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Checkpoint 1: FFT Processing
             fft_outputs = [
                 output_dir / "derippled_stack.tif",
                 output_dir / "fft_amplitude.png",
@@ -466,16 +537,29 @@ def main():
                 fft_start = time.time()
                 derippled_stack = process_fft_masks(str(raw_stack_path), channel_type, output_dir)
                 print(f"FFT mask processing completed in {timedelta(seconds=int(time.time() - fft_start))}")
-            
-            # Checkpoint 2: Suite2p Pipeline
-            suite2p_dir = output_dir / 'suite2p'
+        else:
+            print("Skipping FFT processing - using manual Suite2p files")
+        
+        # Checkpoint 2: Suite2p Pipeline
+        suite2p_dir = output_dir / 'suite2p'
+        
+        if args.manual_s2p:
+            print("Using existing Suite2p files (manual processing)...")
+            try:
+                suite2p_dir = validate_suite2p_files(suite2p_dir)
+            except FileNotFoundError as e:
+                print(f"ERROR: {str(e)}")
+                print("Skipping this directory...")
+                return
+        else:
             suite2p_outputs = [
-                suite2p_dir / 'F.npy',
-                suite2p_dir / 'iscell.npy'
+                suite2p_dir / 'plane0' / 'F.npy',
+                suite2p_dir / 'plane0' / 'iscell.npy'
             ]
             
             if not args.overwrite and all(f.exists() and f.stat().st_size > 0 for f in suite2p_outputs):
                 print("Skipping suite2p pipeline - output files already exist")
+                suite2p_dir = suite2p_dir / 'plane0'  # Point to plane0 for consistency
             else:
                 print("Starting suite2p pipeline...")
                 suite2p_start = time.time()
@@ -484,75 +568,72 @@ def main():
                     print(f"Suite2p pipeline completed in {timedelta(seconds=int(time.time() - suite2p_start))}")
                 except Exception as e:
                     print(f"ERROR: Suite2p pipeline failed: {str(e)}")
-                    print("Skipping this folder and continuing with next...")
-                    continue
-            
-            # Checkpoint 3: ROI Selection
-            roi_outputs = [
-                suite2p_dir / 'iscell.npy',
-                output_dir / 'roi_selection.png'
-            ]
-            
-            if not args.overwrite and all(f.exists() and f.stat().st_size > 0 for f in roi_outputs):
-                print("Skipping ROI selection - output files already exist")
-            else:
-                print("Starting ROI selection...")
-                roi_start = time.time()
-                try:
-                    process_roi_selection(suite2p_dir, output_dir)
-                    print(f"ROI selection completed in {timedelta(seconds=int(time.time() - roi_start))}")
-                except Exception as e:
-                    print(f"ERROR: ROI selection failed: {str(e)}")
-                    print("Skipping this folder and continuing with next...")
-                    continue
-            
-            # Checkpoint 4: Rasterplot Generation
-            raster_outputs = [
-                output_dir / 'rasterplot_default.png',
-                output_dir / 'rasterplot_sorted.png',
-                suite2p_dir / 'rastermap_model.npy'
-            ]
-            
-            if not args.overwrite and all(f.exists() and f.stat().st_size > 0 for f in raster_outputs):
-                print("Skipping rasterplot generation - output files already exist")
-            else:
-                print("Generating rasterplots...")
-                raster_start = time.time()
-                try:
-                    generate_rasterplots(suite2p_dir, output_dir)
-                    print(f"Rasterplot generation completed in {timedelta(seconds=int(time.time() - raster_start))}")
-                except Exception as e:
-                    print(f"ERROR: Rasterplot generation failed: {str(e)}")
-                    print("Skipping this folder and continuing with next...")
-                    continue
-            
-            # Checkpoint 5: Pickle File
-            pickle_file = output_dir / 'selected_traces.pkl'
-            
-            if not args.overwrite and pickle_file.exists() and pickle_file.stat().st_size > 0:
-                print("Skipping pickle file generation - file already exists")
-            else:
-                print("Generating pickle file...")
-                pickle_start = time.time()
-                try:
-                    generate_pickle_file(suite2p_dir, output_dir)
-                    print(f"Pickle file generation completed in {timedelta(seconds=int(time.time() - pickle_start))}")
-                except Exception as e:
-                    print(f"ERROR: Pickle file generation failed: {str(e)}")
-                    print("Skipping this folder and continuing with next...")
-                    continue
-            
-            total_time = time.time() - start_time
-            print(f"\nProcessing complete for {folder_path}")
-            print(f"Total processing time: {timedelta(seconds=int(total_time))}")
-            
-        except Exception as e:
-            print(f"\nERROR: An error occurred while processing {folder_path}:")
-            print(f"Error message: {str(e)}")
-            print("Skipping this folder and continuing with next...")
-            continue
-    
-    return 0
+                    print("Skipping this directory...")
+                    return
+        
+        # Checkpoint 3: ROI Selection
+        roi_outputs = [
+            suite2p_dir / 'iscell.npy',
+            output_dir / 'roi_selection.png'
+        ]
+        
+        if not args.overwrite and all(f.exists() and f.stat().st_size > 0 for f in roi_outputs):
+            print("Skipping ROI selection - output files already exist")
+        else:
+            print("Starting ROI selection...")
+            roi_start = time.time()
+            try:
+                process_roi_selection(suite2p_dir, output_dir)
+                print(f"ROI selection completed in {timedelta(seconds=int(time.time() - roi_start))}")
+            except Exception as e:
+                print(f"ERROR: ROI selection failed: {str(e)}")
+                print("Skipping this directory...")
+                return
+        
+        # Checkpoint 4: Rasterplot Generation
+        raster_outputs = [
+            output_dir / 'rasterplot_default.png',
+            output_dir / 'rasterplot_sorted.png',
+            suite2p_dir / 'rastermap_model.npy'
+        ]
+        
+        if not args.overwrite and all(f.exists() and f.stat().st_size > 0 for f in raster_outputs):
+            print("Skipping rasterplot generation - output files already exist")
+        else:
+            print("Generating rasterplots...")
+            raster_start = time.time()
+            try:
+                generate_rasterplots(suite2p_dir, output_dir)
+                print(f"Rasterplot generation completed in {timedelta(seconds=int(time.time() - raster_start))}")
+            except Exception as e:
+                print(f"ERROR: Rasterplot generation failed: {str(e)}")
+                print("Skipping this directory...")
+                return
+        
+        # Checkpoint 5: Pickle File
+        pickle_file = output_dir / 'selected_traces.pkl'
+        
+        if not args.overwrite and pickle_file.exists() and pickle_file.stat().st_size > 0:
+            print("Skipping pickle file generation - file already exists")
+        else:
+            print("Generating pickle file...")
+            pickle_start = time.time()
+            try:
+                generate_pickle_file(suite2p_dir, output_dir)
+                print(f"Pickle file generation completed in {timedelta(seconds=int(time.time() - pickle_start))}")
+            except Exception as e:
+                print(f"ERROR: Pickle file generation failed: {str(e)}")
+                print("Skipping this directory...")
+                return
+        
+        total_time = time.time() - start_time
+        print(f"\nProcessing complete for {output_dir}")
+        print(f"Total processing time: {timedelta(seconds=int(total_time))}")
+        
+    except Exception as e:
+        print(f"\nERROR: An error occurred while processing {output_dir}:")
+        print(f"Error message: {str(e)}")
+        print("Skipping this directory...")
 
 if __name__ == "__main__":
     sys.exit(main()) 
