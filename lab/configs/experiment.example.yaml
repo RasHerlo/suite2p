@@ -1,0 +1,50 @@
+# Example experiment config (not loaded yet).
+# Copy this file per experiment and override only what differs from lab/configs/defaults.py.
+#
+# Intended later usage:
+#   python -m lab.pipeline.basic_suite2p_walk /data/root --config lab/configs/my_exp.yaml
+
+experiment: example_experiment
+cell_type_by_channel:
+  ChanA: neuron
+  ChanB: astrocyte
+  SUPPORT_ChanA: neuron
+  SUPPORT_ChanB: astrocyte
+
+acquisition:
+  fs: 10.0
+  tau: 1.0
+  nplanes: 1
+  nchannels: 1
+
+preprocess:
+  method: none   # none | fft | wavelet | video | ripple
+  fft_masks:
+    A:
+      type: circle
+      coords: [[15, 25]]
+    B:
+      type: rect
+      coords: [[-52, -81, 43, 7], [52, 81, 43, 7]]
+
+suite2p:
+  do_registration: true
+  nonrigid: true
+  spatial_scale: 0
+  neucoeff: 0.7
+  anatomical_only: 0   # 0 = functional detection; 1–4 = Cellpose on mean/max img
+
+cellpose:
+  diameter: 0
+  cellprob_threshold: 0.0
+  flow_threshold: 1.5
+  models:
+    neuron: models/neuron
+    astrocyte: models/astrocyte
+
+roi_selection:
+  ellipticity_threshold: 0.78
+  components_threshold: 3
+
+postprocess:
+  stimulation_range: null   # [start_frame, end_frame], or omit to use n_frames lookup

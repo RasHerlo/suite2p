@@ -9,7 +9,7 @@ based on customizable criteria. It loads data from a Suite2p output folder
 and allows application of different selection functions.
 
 Usage:
-    python roi_selection_new.py path_to_plane0_folder
+    python lab/detection/roi_selection_new.py path_to_plane0_folder
 
 Author: [User]
 Date: 2025-05-18

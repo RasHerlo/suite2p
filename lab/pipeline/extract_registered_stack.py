@@ -64,7 +64,7 @@ if __name__ == "__main__":
     import sys
     
     if len(sys.argv) < 2:
-        print("Usage: python extract_registered_stack.py <path_to_ops.npy> [output_filename]")
+        print("Usage: python lab/pipeline/extract_registered_stack.py <path_to_ops.npy> [output_filename]")
         print("\nExample:")
         print('  python extract_registered_stack.py "F:\\path\\to\\suite2p\\plane0\\ops.npy"')
         print('  python extract_registered_stack.py "F:\\path\\to\\suite2p\\plane0\\ops.npy" my_registered.tif')

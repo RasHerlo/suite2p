@@ -18,14 +18,13 @@ skipped with a warning.
 
 Usage
 -----
-    python basic_suite2p_walk.py <root_dir>
-    python basic_suite2p_walk.py <root_dir> --overwrite
+    python -m lab.pipeline.basic_suite2p_walk <root_dir>
+    python lab/pipeline/basic_suite2p_walk.py <root_dir>
+    python lab/pipeline/basic_suite2p_walk.py <root_dir> --overwrite
 
 Settings
 --------
-    Identical to data_processing_master.py:
-    fs=10, tau=1.0, nonrigid, spatial_scale=0, neucoeff=0.7 …
-    ROI selection: ellipticity < 0.78, connected components ≤ 3
+    From lab/configs/defaults.py (S2P_OPS + ROI_SELECTION).
 """
 
 import os
@@ -35,6 +34,8 @@ import argparse
 import warnings
 import datetime
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 # Show suite2p's INFO-level progress messages in the terminal
 logging.basicConfig(
@@ -50,49 +51,13 @@ import matplotlib.pyplot as plt
 
 from suite2p import default_ops
 from suite2p.run_s2p import run_s2p
-from roi_selection_new import ROISelector
+from lab.configs.defaults import CHANNEL_FILES, ROI_SELECTION, apply_s2p_ops
+from lab.detection.roi_selection_new import ROISelector
 
-
-# ─── Suite2p settings (mirrored from data_processing_master.py) ───────────────
 
 def build_ops(tif_path, output_dir):
     """Return a fully-configured ops dict for the given input file."""
-    ops = default_ops()
-
-    # paths
-    ops['data_path']   = [str(Path(tif_path).parent)]
-    ops['save_path0']  = str(output_dir)
-    ops['save_folder'] = 'suite2p'
-    ops['fast_disk']   = str(output_dir)
-
-    # acquisition
-    ops['nplanes']        = 1
-    ops['nchannels']      = 1
-    ops['functional_chan'] = 1
-    ops['tau']            = 1.0    # sensor decay timescale (s)
-    ops['fs']             = 10.0   # sampling rate (Hz)
-
-    # registration
-    ops['do_registration'] = True
-    ops['nonrigid']        = True
-    ops['block_size']      = [128, 128]
-    ops['maxregshift']     = 0.1
-    ops['align_by_chan']   = 1
-
-    # ROI detection
-    ops['roidetect']    = True
-    ops['spikedetect']  = True
-    ops['spatial_scale'] = 0       # multi-scale
-    ops['connected']    = True
-    ops['max_overlap']  = 0.75
-
-    # signal extraction
-    ops['neuropil_extract']      = True
-    ops['inner_neuropil_radius'] = 2
-    ops['min_neuropil_pixels']   = 350
-    ops['neucoeff']              = 0.7
-
-    return ops
+    return apply_s2p_ops(default_ops(), tif_path=tif_path, output_dir=output_dir)
 
 
 # ─── ROI selection (same thresholds as data_processing_master.py) ─────────────
@@ -107,8 +72,8 @@ def run_roi_selection(plane0_dir):
 
     new_iscell = selector.apply_selection_function(
         'select_by_roi_ellipticity_and_components',
-        ellipticity_threshold=0.78,
-        components_threshold=3,
+        ellipticity_threshold=ROI_SELECTION['ellipticity_threshold'],
+        components_threshold=ROI_SELECTION['components_threshold'],
         show_plot=False,
     )
     np.save(Path(plane0_dir) / 'iscell.npy', new_iscell)
@@ -207,13 +172,7 @@ def process_stack(tif_path, overwrite=False):
 
 # ─── Folder discovery ──────────────────────────────────────────────────────────
 
-# Maps each channel folder name → expected .tif filename inside it
-_CHANNEL_FILES = {
-    'ChanA':          'ChanA_stk.tif',
-    'ChanB':          'ChanB_stk.tif',
-    'SUPPORT_ChanA':  'denoised_cut.tif',
-    'SUPPORT_ChanB':  'denoised_cut.tif',
-}
+_CHANNEL_FILES = CHANNEL_FILES
 
 
 def find_targets(root):

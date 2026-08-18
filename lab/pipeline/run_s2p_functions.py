@@ -5,11 +5,11 @@ Suite2p Functions Runner
 Run individual functions from the data processing pipeline.
 
 Usage:
-    python run_s2p_functions.py --list
-    python run_s2p_functions.py roi-selection /path/to/suite2p/plane0 /path/to/output
-    python run_s2p_functions.py rasterplots /path/to/suite2p/plane0 /path/to/output
-    python run_s2p_functions.py pickle /path/to/suite2p/plane0 /path/to/output
-    python run_s2p_functions.py --help <function_name>
+    python -m lab.pipeline.run_s2p_functions --list
+    python lab/pipeline/run_s2p_functions.py roi-selection /path/to/suite2p/plane0 /path/to/output
+    python lab/pipeline/run_s2p_functions.py rasterplots /path/to/suite2p/plane0 /path/to/output
+    python lab/pipeline/run_s2p_functions.py pickle /path/to/suite2p/plane0 /path/to/output
+    python lab/pipeline/run_s2p_functions.py --help <function_name>
 """
 
 import sys
@@ -17,23 +17,30 @@ import argparse
 import subprocess
 from pathlib import Path
 
+_LAB_DIR = Path(__file__).resolve().parent.parent
+_SCRIPTS = {
+    'roi-selection': _LAB_DIR / 'detection' / 'run_roi_selection.py',
+    'rasterplots': _LAB_DIR / 'postprocess' / 'run_rasterplots.py',
+    'pickle': _LAB_DIR / 'postprocess' / 'generate_traces_pickle.py',
+}
+
 def list_functions():
     """List available functions and their descriptions."""
     functions = {
         'roi-selection': {
             'description': 'Apply ROI selection based on ellipticity and components',
-            'script': 'run_roi_selection.py',
-            'example': 'python run_s2p_functions.py roi-selection /path/to/suite2p/plane0 /path/to/output --ellipticity 0.8 --components 2'
+            'script': str(_SCRIPTS['roi-selection'].relative_to(_LAB_DIR.parent)),
+            'example': 'python lab/pipeline/run_s2p_functions.py roi-selection /path/to/suite2p/plane0 /path/to/output --ellipticity 0.8 --components 2'
         },
         'rasterplots': {
             'description': 'Generate rasterplots (default and rastermap-sorted)',
-            'script': 'run_rasterplots.py',
-            'example': 'python run_s2p_functions.py rasterplots /path/to/suite2p/plane0 /path/to/output --no-rastermap'
+            'script': str(_SCRIPTS['rasterplots'].relative_to(_LAB_DIR.parent)),
+            'example': 'python lab/pipeline/run_s2p_functions.py rasterplots /path/to/suite2p/plane0 /path/to/output --no-rastermap'
         },
         'pickle': {
             'description': 'Generate pickle file with selected traces',
-            'script': 'generate_traces_pickle.py',
-            'example': 'python run_s2p_functions.py pickle /path/to/suite2p/plane0 /path/to/output --filename my_traces.pkl'
+            'script': str(_SCRIPTS['pickle'].relative_to(_LAB_DIR.parent)),
+            'example': 'python lab/pipeline/run_s2p_functions.py pickle /path/to/suite2p/plane0 /path/to/output --filename my_traces.pkl'
         }
     }
     
@@ -49,19 +56,13 @@ def list_functions():
 
 def run_function(function_name, args):
     """Run a specific function with the given arguments."""
-    functions = {
-        'roi-selection': 'run_roi_selection.py',
-        'rasterplots': 'run_rasterplots.py',
-        'pickle': 'generate_traces_pickle.py'
-    }
-    
-    if function_name not in functions:
+    if function_name not in _SCRIPTS:
         print(f"ERROR: Unknown function '{function_name}'")
-        print(f"Available functions: {list(functions.keys())}")
+        print(f"Available functions: {list(_SCRIPTS.keys())}")
         return False
     
-    script_name = functions[function_name]
-    script_path = Path(__file__).parent / script_name
+    script_path = _SCRIPTS[function_name]
+    script_name = script_path.name
     
     if not script_path.exists():
         print(f"ERROR: Script {script_name} not found in {script_path.parent}")
@@ -80,18 +81,12 @@ def run_function(function_name, args):
 
 def get_function_help(function_name):
     """Get help for a specific function."""
-    functions = {
-        'roi-selection': 'run_roi_selection.py',
-        'rasterplots': 'run_rasterplots.py',
-        'pickle': 'generate_traces_pickle.py'
-    }
-    
-    if function_name not in functions:
+    if function_name not in _SCRIPTS:
         print(f"ERROR: Unknown function '{function_name}'")
         return False
     
-    script_name = functions[function_name]
-    script_path = Path(__file__).parent / script_name
+    script_path = _SCRIPTS[function_name]
+    script_name = script_path.name
     
     if not script_path.exists():
         print(f"ERROR: Script {script_name} not found")

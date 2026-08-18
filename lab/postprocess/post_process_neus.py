@@ -1,10 +1,14 @@
 import os
+import sys
 import numpy as np
 import argparse
 from pathlib import Path
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from matplotlib.widgets import Slider
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from lab.configs.defaults import STIMULATION_RANGES_BY_NFRAMES
 
 """
 This script processes neural trace data from suite2p output files.
@@ -24,11 +28,7 @@ def get_stimulation_range(shape):
     Returns:
         tuple: (start_frame, end_frame) for stimulation range, or None if shape not recognized
     """
-    if shape[1] == 1520:
-        return (726, 733)
-    elif shape[1] == 2890:
-        return (1381, 1388)
-    return None
+    return STIMULATION_RANGES_BY_NFRAMES.get(shape[1])
 
 def normalize_traces(F):
     """

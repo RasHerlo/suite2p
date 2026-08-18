@@ -68,3 +68,7 @@ Temporary Items
 
 # data
 data/test_data
+
+# Cellpose / custom model weights (keep the folder README)
+models/*
+!models/README.md

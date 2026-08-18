@@ -1,8 +1,12 @@
 import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import numpy as np
 from suite2p import default_ops
 from suite2p.registration import register
-from pathlib import Path
 from tifffile import imread, imwrite
 import re
 import matplotlib.pyplot as plt

@@ -12,7 +12,8 @@ This script combines multiple processing steps:
 5. Data export
 
 Usage:
-    python data_processing_master.py path_to_root_directory
+    python -m lab.pipeline.data_processing_master path_to_root_directory
+    python lab/pipeline/data_processing_master.py path_to_root_directory
 
 Author: [User]
 Date: 2024-03-19
@@ -24,14 +25,17 @@ import argparse
 import numpy as np
 import pandas as pd
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import matplotlib.pyplot as plt
 from tifffile import imread, imwrite
 from rastermap.rastermap import Rastermap
 import pickle
 from suite2p.run_s2p import pipeline, run_s2p
 from suite2p.default_ops import default_ops
-from roi_selection_new import ROISelector
 import time
+from lab.configs.defaults import FFT_MASKS, ROI_SELECTION, apply_s2p_ops
+from lab.detection.roi_selection_new import ROISelector
 from datetime import timedelta
 from suite2p.io import BinaryFile
 import tifffile
@@ -100,13 +104,15 @@ def process_fft_masks(input_path, channel_type, output_dir):
     fft_amplitude = np.abs(fft_images)
     fft_mean = np.mean(fft_amplitude, axis=0)
     
-    # Create mask based on channel type
-    if channel_type == 'A':
-        # Circular/ring mask for ChanA
-        mask = create_circular_mask(images.shape, [(15, 25)])
+    try:
+        preset = FFT_MASKS[channel_type]
+    except KeyError:
+        raise ValueError(f"No FFT mask preset for channel type {channel_type!r}")
+
+    if preset['type'] == 'circle':
+        mask = create_circular_mask(images.shape, preset['coords'])
     else:
-        # Rectangular masks for ChanB
-        mask = create_rectangular_mask(images.shape, [[-52, -81, 43, 7], [52, 81, 43, 7]])
+        mask = create_rectangular_mask(images.shape, preset['coords'])
     
     # Apply the mask to all frames
     masked_fft = fft_images.copy()
@@ -128,13 +134,10 @@ def process_fft_masks(input_path, channel_type, output_dir):
     imwrite(output_tif, denoised_images.astype(np.float32))
     
     # Save FFT visualizations
-    save_fft_visualization(fft_amplitude[0], mask, output_fft_img, 
-                          [(15, 25)] if channel_type == 'A' else [[-52, -81, 43, 7], [52, 81, 43, 7]],
-                          'circle' if channel_type == 'A' else 'rect')
-    
+    save_fft_visualization(fft_amplitude[0], mask, output_fft_img,
+                          preset['coords'], preset['type'])
     save_fft_visualization(fft_mean, mask, output_fft_mean,
-                          [(15, 25)] if channel_type == 'A' else [[-52, -81, 43, 7], [52, 81, 43, 7]],
-                          'circle' if channel_type == 'A' else 'rect')
+                          preset['coords'], preset['type'])
     
     return str(output_tif)
 
@@ -226,43 +229,7 @@ def run_suite2p_pipeline(input_path, output_dir):
     Path
         Path to suite2p output directory
     """
-    # Initialize ops with default settings
-    ops = default_ops()
-    
-    # Set up file paths
-    ops['save_path0'] = str(output_dir)
-    ops['save_folder'] = 'suite2p'
-    ops['fast_disk'] = str(output_dir)  # Use same directory for temporary files
-    
-    # Set up processing options
-    ops['nplanes'] = 1
-    ops['nchannels'] = 1
-    ops['functional_chan'] = 1
-    ops['tau'] = 1.0  # Timescale of the sensor
-    ops['fs'] = 10.0  # Sampling rate per plane
-    
-    # Registration options
-    ops['do_registration'] = True
-    ops['nonrigid'] = True
-    ops['block_size'] = [128, 128]
-    ops['maxregshift'] = 0.1
-    ops['align_by_chan'] = 1
-    
-    # ROI detection options
-    ops['roidetect'] = True
-    ops['spikedetect'] = True
-    ops['spatial_scale'] = 0  # Multi-scale detection
-    ops['connected'] = True
-    ops['max_overlap'] = 0.75
-    
-    # Signal extraction options
-    ops['neuropil_extract'] = True
-    ops['inner_neuropil_radius'] = 2
-    ops['min_neuropil_pixels'] = 350
-    ops['neucoeff'] = 0.7
-    
-    # Set data path to the directory containing the TIFF file
-    ops['data_path'] = [str(Path(input_path).parent)]
+    ops = apply_s2p_ops(default_ops(), tif_path=input_path, output_dir=output_dir)
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -305,8 +272,8 @@ def process_roi_selection(suite2p_dir, output_dir):
     # Apply selection with fixed parameters
     new_iscell = selector.apply_selection_function(
         'select_by_roi_ellipticity_and_components',
-        ellipticity_threshold=0.78,
-        components_threshold=3,
+        ellipticity_threshold=ROI_SELECTION['ellipticity_threshold'],
+        components_threshold=ROI_SELECTION['components_threshold'],
         show_plot=False
     )
     

@@ -5,8 +5,8 @@ Standalone ROI Selection Script
 Run ROI selection on suite2p output directory.
 
 Usage:
-    python run_roi_selection.py /path/to/suite2p/plane0 /path/to/output/dir
-    python run_roi_selection.py /path/to/suite2p/plane0 /path/to/output/dir --ellipticity 0.8 --components 2
+    python -m lab.detection.run_roi_selection /path/to/suite2p/plane0 /path/to/output/dir
+    python lab/detection/run_roi_selection.py /path/to/suite2p/plane0 /path/to/output/dir --ellipticity 0.8 --components 2
 """
 
 import sys
@@ -14,9 +14,15 @@ import argparse
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
-from roi_selection_new import ROISelector
 
-def process_roi_selection(suite2p_dir, output_dir, ellipticity_threshold=0.78, components_threshold=3, show_plot=False):
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from lab.configs.defaults import ROI_SELECTION
+from lab.detection.roi_selection_new import ROISelector
+
+def process_roi_selection(suite2p_dir, output_dir,
+                          ellipticity_threshold=ROI_SELECTION['ellipticity_threshold'],
+                          components_threshold=ROI_SELECTION['components_threshold'],
+                          show_plot=False):
     """
     Process ROI selection with specified parameters.
     
@@ -127,10 +133,12 @@ def main():
     parser = argparse.ArgumentParser(description='Run ROI selection on suite2p output')
     parser.add_argument('suite2p_dir', help='Path to suite2p output directory (plane0 folder)')
     parser.add_argument('output_dir', help='Directory to save visualization outputs')
-    parser.add_argument('--ellipticity', type=float, default=0.78, 
-                       help='Ellipticity threshold (default: 0.78)')
-    parser.add_argument('--components', type=int, default=3,
-                       help='Components threshold (default: 3)')
+    parser.add_argument('--ellipticity', type=float,
+                       default=ROI_SELECTION['ellipticity_threshold'],
+                       help=f"Ellipticity threshold (default: {ROI_SELECTION['ellipticity_threshold']})")
+    parser.add_argument('--components', type=int,
+                       default=ROI_SELECTION['components_threshold'],
+                       help=f"Components threshold (default: {ROI_SELECTION['components_threshold']})")
     parser.add_argument('--show-plot', action='store_true',
                        help='Show plots interactively')
     

@@ -5,8 +5,8 @@ Standalone Rasterplot Generation Script
 Generate rasterplots from suite2p output directory.
 
 Usage:
-    python run_rasterplots.py /path/to/suite2p/plane0 /path/to/output/dir
-    python run_rasterplots.py /path/to/suite2p/plane0 /path/to/output/dir --no-rastermap
+    python lab/postprocess/run_rasterplots.py /path/to/suite2p/plane0 /path/to/output/dir
+    python lab/postprocess/run_rasterplots.py /path/to/suite2p/plane0 /path/to/output/dir --no-rastermap
 """
 
 import sys

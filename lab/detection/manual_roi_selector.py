@@ -7,8 +7,8 @@ from a suite2p plane0 output folder.
 
 Usage
 -----
-    python manual_roi_selector.py
-    python manual_roi_selector.py  /path/to/plane0
+    python lab/detection/manual_roi_selector.py
+    python lab/detection/manual_roi_selector.py  /path/to/plane0
 
 Keys
 ----

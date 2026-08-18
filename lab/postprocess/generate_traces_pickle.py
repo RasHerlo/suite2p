@@ -5,8 +5,8 @@ Standalone Traces Pickle Generation Script
 Generate pickle file with selected traces from suite2p output.
 
 Usage:
-    python generate_traces_pickle.py /path/to/suite2p/plane0 /path/to/output/dir
-    python generate_traces_pickle.py /path/to/suite2p/plane0 /path/to/output/dir --filename custom_traces.pkl
+    python lab/postprocess/generate_traces_pickle.py /path/to/suite2p/plane0 /path/to/output/dir
+    python lab/postprocess/generate_traces_pickle.py /path/to/suite2p/plane0 /path/to/output/dir --filename custom_traces.pkl
 """
 
 import sys
