@@ -157,7 +157,10 @@ def process_folder(parent_folder):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description='Process registration for SUPPORT_Chan folders')
+    parser = argparse.ArgumentParser(
+        description='Legacy registration (shifts estimated on the movie as-is, '
+                    'including fringes). For cell-oriented register see '
+                    'lab/pipeline/fringe_robust_register.py and lab/notes/motion_correction.md.')
     parser.add_argument('parent_folder', type=str, help='Parent folder containing SUPPORT_Chan folders')
     args = parser.parse_args()
     

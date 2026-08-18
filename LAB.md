@@ -37,7 +37,7 @@ raw / SUPPORT stacks
   lab/preprocess     optional denoise (FFT GUI, FFT masks, wavelet, video, ripple)
         │
         ▼
-  lab/pipeline       suite2p registration → detection → extraction
+  lab/pipeline       motion correction (cell-oriented or legacy) → detection → extraction
                      (ops from lab/configs/defaults.py)
         │
         ▼
@@ -61,7 +61,8 @@ you want anatomical detection.
 | Other denoise | `wavelet_denoise.py`, `denoise_video.py`, `ripple_remove.py` in `lab/preprocess/` |
 | Batch suite2p + ROI filter | `lab/pipeline/basic_suite2p_walk.py` |
 | Older FFT → s2p → ROI → raster → pickle | `lab/pipeline/data_processing_master.py` |
-| Registration only (SUPPORT folders) | `lab/pipeline/process_registration.py` |
+| Cell-oriented register (fringes) | `lab/pipeline/fringe_robust_register.py` |
+| Legacy register (can lock onto fringes) | `lab/pipeline/process_registration.py` |
 | Extract registered stack from `data.bin` | `lab/pipeline/extract_registered_stack.py` |
 | Single-step ROI / raster / pickle | `lab/pipeline/run_s2p_functions.py --list` |
 | Manual ROI review | `lab/detection/manual_roi_selector.py` |
@@ -87,6 +88,7 @@ you want anatomical detection.
 Shared numbers live in `lab/configs/defaults.py`:
 
 - suite2p ops (`fs`, `tau`, nonrigid, neuropil, …)
+- cell-oriented registration (`REGISTRATION`: `smooth_sigma=3`, no `1Preg`, no FFT notch)
 - ROI ellipticity / components thresholds
 - channel folder → tiff names
 - FFT masks per channel A/B
@@ -101,3 +103,10 @@ overrides. It is not loaded yet.
 Change **lab/** for new lab behavior. Change **suite2p/** only when a wrapper
 and `ops` cannot do the job (for example merging two Cellpose mask sets on
 one plane).
+
+Working notes (resume a later session from here): [lab/notes/CURRENT.md](lab/notes/CURRENT.md).
+
+**Paper-repo / catalog agent:** read
+[lab/notes/HANDOFF_FOR_PAPER_REPO.md](lab/notes/HANDOFF_FOR_PAPER_REPO.md)
+(MC bakeoff status, warnings, pipeline coordination). Do not implement
+defringe in this repo.

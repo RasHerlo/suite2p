@@ -40,6 +40,46 @@ ROI_SELECTION = {
     "components_threshold": 3,
 }
 
+# Cell-oriented motion correction (lab/pipeline/fringe_robust_register.py).
+# Incoming stacks may already be defringed; this repo does not defringe.
+# Do not turn 1Preg on: spatial_hp_reg keeps ~10 px residual fringes.
+# ChanA/B are PMT paths; align_channel is a default for Shinano+C1 (red neurons).
+REGISTRATION = {
+    "output_folder": "suite2p_cellreg",
+    "align_filter": "none",  # none | lowpass (lowpass = phasecorr weighting only)
+    "lowpass_sigma": 4.0,
+    "smooth_sigma": 3.0,
+    "nonrigid": False,
+    "maxregshift": 0.1,
+    "maxregshiftNR": 3,
+    "one_p_reg": False,
+    "corrxy_frac": 0.4,
+    "share_shifts_across_channels": True,
+    "align_channel": "A",
+    "write_registered_tif": True,
+    "input_tiff_names": (
+        "denoised_cut.tif",
+        "ChanA_stk.tif",
+        "ChanB_stk.tif",
+        "ChanA_stk_defringed_v21.tif",
+        "ChanB_stk_defringed_v21.tif",
+        "ChanA_stk_defringed.tif",
+        "ChanB_stk_defringed.tif",
+    ),
+}
+
+# Default MouseLand-like rigid+nonrigid, for bakeoff against REGISTRATION.
+REGISTRATION_LEGACY = {
+    **REGISTRATION,
+    "align_filter": "none",
+    "smooth_sigma": 1.15,
+    "nonrigid": True,
+    "maxregshiftNR": 5,
+    "corrxy_frac": 0.0,  # do not interpolate; match stock suite2p
+    "share_shifts_across_channels": False,
+    "write_registered_tif": False,
+}
+
 CHANNEL_FILES = {
     "ChanA": "ChanA_stk.tif",
     "ChanB": "ChanB_stk.tif",

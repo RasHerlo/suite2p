@@ -18,14 +18,9 @@ acquisition:
   nchannels: 1
 
 preprocess:
-  method: none   # none | fft | wavelet | video | ripple
-  fft_masks:
-    A:
-      type: circle
-      coords: [[15, 25]]
-    B:
-      type: rect
-      coords: [[-52, -81, 43, 7], [52, 81, 43, 7]]
+  # Not run in this repo. Stacks should arrive already assembled / optionally
+  # defringed / denoised. method is recorded for provenance only.
+  method: none   # none | defringe_upstream | support | ...
 
 suite2p:
   do_registration: true
@@ -33,6 +28,16 @@ suite2p:
   spatial_scale: 0
   neucoeff: 0.7
   anatomical_only: 0   # 0 = functional detection; 1–4 = Cellpose on mean/max img
+
+registration:
+  # Register the delivered movie. No FFT notch / defringe here.
+  # 1Preg must stay false (high-pass keeps residual ~10 px PMT texture).
+  align_filter: none   # none | lowpass
+  lowpass_sigma: 4.0
+  smooth_sigma: 3.0
+  nonrigid: false
+  share_shifts_across_channels: true
+  align_channel: A   # PMT letter used to estimate the shared trace (prep-dependent)
 
 cellpose:
   diameter: 0
