@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """CellPose (cyto3) on unregistered means: full raw vs full v2.1.
 
+2D mask peek only — not GUI-evaluable. Forward comparisons use
+run_seg_eval.py (detection + F/Fneu into suite2p/plane0).
+
 Skips motion correction so the comparison is defringe vs raw anatomy.
 ChanB is a wrong-prior control (stock Cellpose is soma-trained).
 

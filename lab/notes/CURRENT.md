@@ -1,11 +1,12 @@
 # Current work
 
-Last updated: 2026-08-18 (evening)
+Last updated: 2026-08-19
 
 **Paper / catalog agent:** [HANDOFF_FOR_PAPER_REPO.md](HANDOFF_FOR_PAPER_REPO.md)
 (not this scratchpad).
 
-**Active:** independent cell-ops MC on full-stack **v2.1**; CellPose on unregistered means done.
+**Active:** independent cell-ops MC on full-stack **v2.1**. Next seg test must
+write GUI-openable `suite2p/plane0` (detection + F/Fneu, no deconv).
 
 **Do not:** re-implement defringe here; turn on `1Preg`; extract Fig 1 traces
 yet; use lowpass registered means as Fig 1 stills (use `stk_avg`).
@@ -34,7 +35,12 @@ Figures: `mc_runs/v21_cell/compare_AB.png`, `mc_runs/v21_cell_shareA/compare_AB.
 
 A vs B mask overlap 0.05–0.08 (not a shared stripe field). Counts barely change: motion smear in the unregistered mean dominates CellPose. Overlay: `seg_runs/cellpose_full/compare.png`.
 
-**Next:** CellPose on *registered* means (`raw_cell` vs `v21_cell`); temporal suite2p after that. Do not extract paper traces yet.
+**Next:** `python lab/pipeline/run_seg_eval.py` — temporal vs `cyto3` on the
+v21 cell-ops registered movie, each arm a `suite2p/plane0` with F and Fneu.
+Compare figure: registered mean | ROIs | F raster
+(`seg_runs/v21_cell_eval/compare.png`). Evaluate in this repo’s suite2p GUI
+and in s2p_Trace_Curation. Do not extract paper traces yet. The 2026-08-18
+`cellpose_full` peek is not that deliverable.
 
 **Scope:** this repo does **not** defringe. Stacks arrive already processed
 upstream if needed ([derippling_PMT_noise](https://github.com/RasHerlo/derippling_PMT_noise)).

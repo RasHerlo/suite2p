@@ -149,3 +149,55 @@ def apply_s2p_ops(ops, tif_path=None, output_dir=None):
         ops["pretrained_model"] = model or CELLPOSE["pretrained_model"]
 
     return ops
+
+
+# Segmentation comparison runs must be openable in:
+#   1) this repo's suite2p GUI (File → load plane0/stat.npy)
+#   2) s2p_Trace_Curation (File → Open suite2p folder… = parent of plane0)
+# Deconvolution is not part of the eval; suite2p still writes zeros to spks.npy
+# so the GUI loader does not reject the folder.
+SEG_EVAL = {
+    "roidetect": True,
+    "neuropil_extract": True,
+    "spikedetect": False,
+    "delete_bin": False,
+    "do_regmetrics": False,
+    "save_folder": "suite2p",
+    "plane0_required": (
+        "ops.npy",
+        "stat.npy",
+        "F.npy",
+        "Fneu.npy",
+        "iscell.npy",
+        "spks.npy",
+        "data.bin",
+    ),
+    "methods": {
+        "temporal": {"anatomical_only": 0},
+        "cyto3": {"anatomical_only": 2, "pretrained_model": "cyto3"},
+    },
+}
+
+
+def apply_seg_eval_ops(ops, method="temporal"):
+    """Detection + F/Fneu extraction, no OASIS. Cell-ops registration overlay."""
+    ops.update({
+        "roidetect": True,
+        "neuropil_extract": True,
+        "spikedetect": False,
+        "delete_bin": False,
+        "do_regmetrics": False,
+        "1Preg": False,
+        "smooth_sigma": REGISTRATION["smooth_sigma"],
+        "nonrigid": REGISTRATION["nonrigid"],
+        "maxregshift": REGISTRATION["maxregshift"],
+        "maxregshiftNR": REGISTRATION["maxregshiftNR"],
+    })
+    method_ops = SEG_EVAL["methods"].get(method)
+    if method_ops is None:
+        raise ValueError(
+            f"unknown SEG_EVAL method {method!r}; "
+            f"expected one of {tuple(SEG_EVAL['methods'])}"
+        )
+    ops.update(method_ops)
+    return ops

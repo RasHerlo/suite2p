@@ -1,16 +1,47 @@
 # Segmentation
 
-Last updated: 2026-08-18 (evening)
+Last updated: 2026-08-19
 
-CellPose `cyto3` peek on **unregistered** full-stack means (raw vs v2.1):
+## Evaluation contract (from 2026-08-19)
+
+A segmentation comparison is **detection + trace extraction**, not a 2D
+mask overlay. Each arm must write a real `suite2p/plane0` so it can be
+opened in:
+
+1. This repo’s **suite2p GUI** (load `plane0/stat.npy`)
+2. [s2p_Trace_Curation](https://github.com/RasHerlo/s2p_Trace_Curation)
+   (File → Open suite2p folder… = the folder that **contains** `plane0/`)
+
+Required in `plane0/`: `ops.npy`, `stat.npy`, `F.npy`, `Fneu.npy`,
+`iscell.npy`, `data.bin`. OASIS / spike deconvolution is **off**
+(`spikedetect=False`). Suite2p still writes zeros to `spks.npy` because
+the suite2p GUI loader rejects a folder that lacks it.
+
+Do **not** apply lab ellipticity ROI filtering on these runs — evaluate
+what detection actually produced. Neuropil extraction stays on
+(`neuropil_extract=True`). Keep `data.bin` (`delete_bin=False`); both
+GUIs need the registered movie.
+
+Layout: `seg_runs/v21_cell_<method>/ChanA|B/suite2p/plane0/`
+Figure (one row per condition): registered mean | mean+ROIs | F raster
+→ `seg_runs/v21_cell_eval/compare.png` (plus per-channel `overview.png`).
+Raster is all detected ROIs, F z-scored per ROI, time in seconds.
+Runner: `lab/pipeline/run_seg_eval.py` (not executed yet).
+
+The 2026-08-18 CellPose peek (`seg_runs/cellpose_full/`) is **not** this
+contract: masks on unregistered means only, no `plane0`, no traces.
+
+## Last 2D peek (not GUI-evaluable)
+
+CellPose `cyto3` on **unregistered** full-stack means (raw vs v2.1):
 `seg_runs/cellpose_full/compare.png`. Counts barely change; motion smear
 dominates. ChanB used the soma model on purpose (wrong prior).
 
-Do this **after** cell-oriented motion correction on a delivered stack.
-Curation cannot rescue fringe-locked ROIs. Independent `v21_cell` is the
-first MC condition where ChanB registered ridge did not exceed its
-unregistered mean — still do not extract paper traces until overlays on
-**registered** means look like cells, and temporal detection is checked.
+Do detection **after** cell-oriented motion correction on a delivered
+stack. Curation cannot rescue fringe-locked ROIs. Independent `v21_cell`
+is the first MC condition where ChanB registered ridge did not exceed
+its unregistered mean — still do not extract paper traces until
+registered-movie ROIs and F/Fneu look usable.
 
 ## Two families (not one model)
 
@@ -30,10 +61,14 @@ C1: ChanA red neurons, ChanB green astro). Do not hardcode globally.
 
 ## When we pick this up
 
-1. Confirm register no longer promotes fringes.
-2. Neuron channel: suite2p temporal vs Cellpose `cyto3` on mean/max.
+1. Run `lab/pipeline/run_seg_eval.py` on v21 (shared cell-ops `data.bin`,
+   then `temporal` vs `cyto3`). Open each `suite2p/` in both GUIs.
+2. Neuron channel: suite2p temporal vs Cellpose `cyto3` on the registered
+   movie (anatomical_only=2), with F and Fneu.
 3. Astrocyte channel: do not reuse the neuron model; plan training data.
-4. Keep `ops['anatomical_only']` / `lab/configs` CELLPOSE slot as the hook.
+   Stock `cyto3` on ChanB stays a wrong-prior control.
+4. Keep `ops['anatomical_only']` / `lab/configs` CELLPOSE + SEG_EVAL as
+   the hook.
 
 Paper-repo: `catalog/preprocessing/TODO.md` (CellPose section),
 `catalog/roi_trace/OVERVIEW.md`.

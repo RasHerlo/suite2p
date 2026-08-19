@@ -208,7 +208,8 @@ unregistered mean):
 raw vs v21 almost the same (ChanA 122 vs 116 ROIs). Motion smear dominates.
 ChanB 11–12 ROIs with soma model (wrong prior). Overlay `compare.png`.
 
-Not done: CellPose on *registered* means; temporal suite2p; paper traces.
+Not done: GUI-evaluable seg+extraction (`run_seg_eval.py`); paper traces.
+The `cellpose_full` peek is masks-only and is **not** a `plane0` deliverable.
 
 ### Defringe repo
 
@@ -225,9 +226,11 @@ Full-stack v2.1 delivered. Further knobs live in that repo.
 
 ### Next in this repo (not paper traces)
 
-1. CellPose on **registered** means (`raw_cell` vs `v21_cell`).
-2. Temporal suite2p detection on v21 (after that overlay looks like cells).
-3. Astrocyte model / not stock `cyto3` on ChanB.
+1. `lab/pipeline/run_seg_eval.py`: temporal vs CellPose `cyto3` on the
+   v21 cell-ops registered movie. Each arm writes `suite2p/plane0` with
+   `stat` / `F` / `Fneu` / `data.bin` (no OASIS). Open in suite2p GUI and
+   [s2p_Trace_Curation](https://github.com/RasHerlo/s2p_Trace_Curation).
+2. Astrocyte model / not stock `cyto3` on ChanB.
 
 ### Explicitly not next (raw)
 

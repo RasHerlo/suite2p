@@ -47,10 +47,11 @@ raw / SUPPORT stacks
   lab/postprocess    rasterplots, pickle traces, stimulation / PCA plots
 ```
 
-Cellpose is not on this path yet. `lab/configs/defaults.py` already has a
-`CELLPOSE` slot (`anatomical_only: 0`). Point `models.neuron` /
-`models.astrocyte` at weights in `models/` and raise `anatomical_only` when
-you want anatomical detection.
+Cellpose can be a comparison arm via `anatomical_only` (see `SEG_EVAL` in
+`lab/configs/defaults.py`). Segmentation bakeoffs must write a full
+`suite2p/plane0` (ROIs + F + Fneu, no deconvolution) so they open in the
+suite2p GUI and in s2p_Trace_Curation. Point `models.neuron` /
+`models.astrocyte` at weights in `models/` when you want a trained prior.
 
 ## What to run
 
@@ -61,6 +62,7 @@ you want anatomical detection.
 | Other denoise | `wavelet_denoise.py`, `denoise_video.py`, `ripple_remove.py` in `lab/preprocess/` |
 | Batch suite2p + ROI filter | `lab/pipeline/basic_suite2p_walk.py` |
 | Older FFT → s2p → ROI → raster → pickle | `lab/pipeline/data_processing_master.py` |
+| Seg + F/Fneu eval (`plane0`) | `lab/pipeline/run_seg_eval.py` |
 | Cell-oriented register (fringes) | `lab/pipeline/fringe_robust_register.py` |
 | Legacy register (can lock onto fringes) | `lab/pipeline/process_registration.py` |
 | Extract registered stack from `data.bin` | `lab/pipeline/extract_registered_stack.py` |
