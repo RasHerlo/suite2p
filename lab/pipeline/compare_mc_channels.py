@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """Compare independent ChanA vs ChanB rigid shifts for one MC condition.
 
+Default image scores (2026-08-19) are signature-mask **fringe** vs mid-band
+**cell** power (`lab.pipeline.mc_fft_metrics`). Legacy |ky|>0.05 ridge is
+kept as a secondary field.
+
 Usage
 -----
     python lab/pipeline/compare_mc_channels.py <run_dir> \\
-        --avg-a <stk_avg_a.tif> --avg-b <stk_avg_b.tif> \\
+        --avg-a <unreg_a> --avg-b <unreg_b> \\
         --out <figure.png>
-
-<run_dir> contains ChanA/ and ChanB/ with offsets.npz and ops.npy (meanImg).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -22,6 +25,18 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from tifffile import imread
+
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from lab.pipeline.mc_fft_metrics import (
+    find_default_signature,
+    flatten_channel_scores,
+    load_signature,
+    score_pair,
+    vertical_ridge_energy,
+)
 
 
 def _load_image(path):
@@ -44,23 +59,6 @@ def _pearson(a, b):
     return float(np.corrcoef(a, b)[0, 1])
 
 
-def vertical_ridge_energy(img, ky_cut=0.05):
-    """Fraction of 2D-FFT power at |ky| > ky_cut (PMT ridges live in Fourier-y)."""
-    img = np.squeeze(np.asarray(img, dtype=np.float32))
-    if img.ndim != 2:
-        raise ValueError(f"expected 2D image, got shape {img.shape}")
-    img = img - img.mean()
-    spec = np.fft.fftshift(np.fft.fft2(img))
-    power = np.abs(spec) ** 2
-    ly, _lx = power.shape
-    cy, cx = ly // 2, power.shape[1] // 2
-    power[cy, cx] = 0
-    ky = (np.arange(ly) - cy) / float(ly)
-    ridge = power[np.abs(ky) > ky_cut, :].sum()
-    tot = power.sum()
-    return float(ridge / (tot + 1e-12))
-
-
 def load_channel(chan_dir):
     chan_dir = Path(chan_dir)
     z = np.load(chan_dir / "offsets.npz")
@@ -73,7 +71,34 @@ def load_channel(chan_dir):
     }
 
 
-def compare(run_dir, avg_a=None, avg_b=None, out_path=None):
+def _score_channel(letter, unreg, reg, run_dir, signature_path):
+    if unreg is None:
+        return {
+            f"ridge_reg_{letter}": vertical_ridge_energy(reg),
+            f"verdict_{letter}": "no_unreg",
+            f"signature_{letter}": None,
+        }
+    if signature_path is None:
+        signature_path = find_default_signature(letter, run_dir)
+    if signature_path is None or not Path(signature_path).exists():
+        return {
+            f"ridge_reg_{letter}": vertical_ridge_energy(reg),
+            f"ridge_unreg_{letter}": vertical_ridge_energy(unreg),
+            f"verdict_{letter}": "no_signature",
+            f"signature_{letter}": None,
+        }
+    pair = score_pair(unreg, reg, load_signature(signature_path), signature_path)
+    return flatten_channel_scores(letter, pair)
+
+
+def compare(
+    run_dir,
+    avg_a=None,
+    avg_b=None,
+    out_path=None,
+    signature_a=None,
+    signature_b=None,
+):
     run_dir = Path(run_dir)
     a = load_channel(run_dir / "ChanA")
     b = load_channel(run_dir / "ChanB")
@@ -82,23 +107,23 @@ def compare(run_dir, avg_a=None, avg_b=None, out_path=None):
         "pearson_yoff": _pearson(a["yoff"], b["yoff"]),
         "cmax_median_A": float(np.median(a["cmax"])),
         "cmax_median_B": float(np.median(b["cmax"])),
-        "ridge_reg_A": vertical_ridge_energy(a["mean"]),
-        "ridge_reg_B": vertical_ridge_energy(b["mean"]),
     }
     if avg_a is None:
         avg_a = run_dir / "ChanA" / "mean_unregistered.npy"
     if avg_b is None:
         avg_b = run_dir / "ChanB" / "mean_unregistered.npy"
-    if avg_a is not None and Path(avg_a).exists():
-        avg_a_img = _load_image(avg_a)
-        stats["ridge_avg_A"] = vertical_ridge_energy(avg_a_img)
-    else:
-        avg_a_img = None
-    if avg_b is not None and Path(avg_b).exists():
-        avg_b_img = _load_image(avg_b)
-        stats["ridge_avg_B"] = vertical_ridge_energy(avg_b_img)
-    else:
-        avg_b_img = None
+    avg_a_img = _load_image(avg_a) if avg_a is not None and Path(avg_a).exists() else None
+    avg_b_img = _load_image(avg_b) if avg_b is not None and Path(avg_b).exists() else None
+
+    stats.update(_score_channel("A", avg_a_img, a["mean"], run_dir, signature_a))
+    stats.update(_score_channel("B", avg_b_img, b["mean"], run_dir, signature_b))
+    # aliases used by older notes / plots
+    stats["ridge_reg_A"] = stats.get("ridge_reg_A")
+    stats["ridge_reg_B"] = stats.get("ridge_reg_B")
+    if "ridge_unreg_A" in stats:
+        stats["ridge_avg_A"] = stats["ridge_unreg_A"]
+    if "ridge_unreg_B" in stats:
+        stats["ridge_avg_B"] = stats["ridge_unreg_B"]
 
     fig, axes = plt.subplots(3, 4, figsize=(16, 11))
     t = np.arange(len(a["yoff"]))
@@ -124,19 +149,36 @@ def compare(run_dir, avg_a=None, avg_b=None, out_path=None):
     axes[1, 1].set_title(f"cmax B  med={stats['cmax_median_B']:.4f}")
     axes[1, 2].axis("off")
     axes[1, 3].axis("off")
+
+    def _r(key, fmt=".3f"):
+        v = stats.get(key)
+        if v is None or (isinstance(v, float) and not np.isfinite(v)):
+            return "nan"
+        if isinstance(v, str):
+            return v
+        return format(v, fmt)
+
     lines = [
         f"xoff r = {stats['pearson_xoff']:.3f}",
         f"yoff r = {stats['pearson_yoff']:.3f}   (fringe-lock ~0.07)",
         f"cmax A/B med = {stats['cmax_median_A']:.4f} / {stats['cmax_median_B']:.4f}",
-        f"ridge energy (Fourier-y) registered A/B = "
-        f"{stats['ridge_reg_A']:.4f} / {stats['ridge_reg_B']:.4f}",
+        "",
+        "cell power ratio (reg/unreg)  A/B = "
+        f"{_r('cell_power_ratio_A')} / {_r('cell_power_ratio_B')}",
+        "fringe power ratio (reg/unreg) A/B = "
+        f"{_r('fringe_power_ratio_A')} / {_r('fringe_power_ratio_B')}",
+        f"verdict A/B = {_r('verdict_A')} / {_r('verdict_B')}",
+        "",
+        "legacy |ky|>0.05 ridge reg A/B = "
+        f"{_r('ridge_reg_A', '.4f')} / {_r('ridge_reg_B', '.4f')}",
     ]
-    if "ridge_avg_A" in stats:
+    if stats.get("ridge_unreg_A") is not None:
         lines.append(
-            f"ridge energy stk_avg A/B = {stats['ridge_avg_A']:.4f} / {stats.get('ridge_avg_B', float('nan')):.4f}"
+            "legacy ridge unreg A/B = "
+            f"{_r('ridge_unreg_A', '.4f')} / {_r('ridge_unreg_B', '.4f')}"
         )
-        lines.append("Registered ridge should not exceed stk_avg.")
-    axes[1, 2].text(0.0, 0.5, "\n".join(lines), va="center", family="monospace", fontsize=9)
+    lines.append("Pass: cell ratio >1, fringe ratio ~<=1.")
+    axes[1, 2].text(0.0, 0.52, "\n".join(lines), va="center", family="monospace", fontsize=8)
     axes[1, 2].set_xlim(0, 1)
 
     def _show(ax, img, title):
@@ -148,9 +190,17 @@ def compare(run_dir, avg_a=None, avg_b=None, out_path=None):
         ax.set_title(title)
         ax.axis("off")
 
-    _show(axes[2, 0], avg_a_img, "stk_avg A")
+    def _baseline_title(path, letter):
+        if path is None:
+            return f"unregistered mean {letter}"
+        name = Path(path).name.lower()
+        if "stk_avg" in name:
+            return f"stk_avg {letter}"
+        return f"unregistered mean {letter}"
+
+    _show(axes[2, 0], avg_a_img, _baseline_title(avg_a, "A"))
     _show(axes[2, 1], a["mean"], "registered mean A")
-    _show(axes[2, 2], avg_b_img, "stk_avg B")
+    _show(axes[2, 2], avg_b_img, _baseline_title(avg_b, "B"))
     _show(axes[2, 3], b["mean"], "registered mean B")
     fig.suptitle(str(run_dir), fontsize=11)
     fig.tight_layout()
@@ -169,9 +219,18 @@ def main():
     p.add_argument("run_dir")
     p.add_argument("--avg-a", default=None)
     p.add_argument("--avg-b", default=None)
+    p.add_argument("--signature-a", default=None)
+    p.add_argument("--signature-b", default=None)
     p.add_argument("--out", default=None)
     args = p.parse_args()
-    compare(args.run_dir, avg_a=args.avg_a, avg_b=args.avg_b, out_path=args.out)
+    compare(
+        args.run_dir,
+        avg_a=args.avg_a,
+        avg_b=args.avg_b,
+        out_path=args.out,
+        signature_a=args.signature_a,
+        signature_b=args.signature_b,
+    )
 
 
 if __name__ == "__main__":

@@ -22,14 +22,22 @@ what detection actually produced. Neuropil extraction stays on
 (`neuropil_extract=True`). Keep `data.bin` (`delete_bin=False`); both
 GUIs need the registered movie.
 
-Layout: `seg_runs/v21_cell_<method>/ChanA|B/suite2p/plane0/`
-Figure (one row per condition): registered mean | mean+ROIs | F raster
-→ `seg_runs/v21_cell_eval/compare.png` (plus per-channel `overview.png`).
+Layout: `seg_runs/<kind>_cell_<method>/ChanA|B/suite2p/plane0/`
+Figure: raw vs v2.1, one row per method×channel (mean | ROIs | F raster each)
+→ `seg_runs/raw_vs_v21_eval/compare.png` (plus per-channel `overview.png`).
 Raster is all detected ROIs, F z-scored per ROI, time in seconds.
-Runner: `lab/pipeline/run_seg_eval.py` (not executed yet).
+Runner: `lab/pipeline/run_seg_eval.py` (ran 2026-08-19; see counts below).
 
-The 2026-08-18 CellPose peek (`seg_runs/cellpose_full/`) is **not** this
-contract: masks on unregistered means only, no `plane0`, no traces.
+## Raw vs v2.1 (2026-08-19), cell-ops registered movie
+
+`seg_runs/raw_vs_v21_eval/compare.png`. Each arm is a GUI-openable `plane0`.
+
+| | raw n ROI | v21 n ROI |
+|---|---|---|
+| temporal A | 229 | 109 |
+| temporal B | 4 | 6 |
+| cyto3 A | 502 | 469 |
+| cyto3 B (wrong prior) | 28 | 14 |
 
 ## Last 2D peek (not GUI-evaluable)
 
@@ -61,8 +69,8 @@ C1: ChanA red neurons, ChanB green astro). Do not hardcode globally.
 
 ## When we pick this up
 
-1. Run `lab/pipeline/run_seg_eval.py` on v21 (shared cell-ops `data.bin`,
-   then `temporal` vs `cyto3`). Open each `suite2p/` in both GUIs.
+1. Run `lab/pipeline/run_seg_eval.py` raw vs v21 (shared cell-ops `data.bin`
+   per stack, then `temporal` vs `cyto3`). Open each `suite2p/` in both GUIs.
 2. Neuron channel: suite2p temporal vs Cellpose `cyto3` on the registered
    movie (anatomical_only=2), with F and Fneu.
 3. Astrocyte channel: do not reuse the neuron model; plan training data.

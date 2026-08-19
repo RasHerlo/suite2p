@@ -96,7 +96,9 @@ def make_alignment_movie(mov, channel_letter, cfg):
     filt = cfg.get("align_filter", "none")
     if filt in (None, "none", ""):
         print("    alignment filter: none (delivered stack)")
-        return to_int16_s2p(mov)
+        # Always copy: to_int16_s2p returns *mov* when already int16, and
+        # suite2p writes registered frames back into its alignment array.
+        return np.array(to_int16_s2p(mov), copy=True, dtype=np.int16)
     if filt != "lowpass":
         raise ValueError(
             f"Unknown align_filter {filt!r}. Use 'none' or 'lowpass'. "
@@ -133,9 +135,10 @@ def estimate_and_apply(mov, channel_letter, output_dir, cfg, offsets=None):
     """Register *mov*. If *offsets* is given, skip estimation and only apply."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    mov = to_int16_s2p(mov)
+    mov = np.array(to_int16_s2p(mov), copy=True, dtype=np.int16)
     nframes, ly, lx = mov.shape
     ops = build_ops(output_dir, cfg, nframes, ly, lx)
+    orig_mean = np.mean(mov.astype(np.float32), axis=0)
 
     if offsets is None:
         align = make_alignment_movie(mov, channel_letter, cfg)
@@ -197,7 +200,6 @@ def estimate_and_apply(mov, channel_letter, output_dir, cfg, offsets=None):
     ops_save["meanImg"] = mean_img
     ops_save["align_channel"] = channel_letter
     ops_save["align_filter"] = cfg.get("align_filter")
-    orig_mean = np.mean(mov, axis=0)
     np.save(output_dir / "mean_unregistered.npy", orig_mean.astype(np.float32))
     np.save(output_dir / "ops.npy", ops_save)
     savez = dict(yoff=yoff, xoff=xoff, cmax=cmax, good=good)

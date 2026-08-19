@@ -33,12 +33,7 @@ CELL_A = MC / "raw_cell" / "ChanA"
 
 
 def _compare(out):
-    compare(
-        out,
-        avg_a=RAW / "ChanA" / "ChanA_stk_avg.tif",
-        avg_b=RAW / "ChanB" / "ChanB_stk_avg.tif",
-        out_path=out / "compare_AB.png",
-    )
+    compare(out, out_path=out / "compare_AB.png")
 
 
 def run_share_a(overwrite):

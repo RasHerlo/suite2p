@@ -6,14 +6,15 @@ Each arm runs ROI detection and extracts F and Fneu. OASIS is off
 suite2p GUI loader accepts the folder.
 
     python lab/pipeline/run_seg_eval.py
-    python lab/pipeline/run_seg_eval.py --methods temporal,cyto3
+    python lab/pipeline/run_seg_eval.py --kinds raw,v21 --methods temporal,cyto3
     python lab/pipeline/run_seg_eval.py --overwrite
 
 Layout (sandbox):
 
-    seg_runs/v21_cell_<method>/ChanA|B/suite2p/plane0/
-    seg_runs/v21_cell_eval/compare.png
-        (registered mean | mean+ROIs | F raster, one row per condition)
+    seg_runs/<kind>_cell_<method>/ChanA|B/suite2p/plane0/
+    seg_runs/raw_vs_v21_eval/compare.png
+        rows: method × channel
+        cols: raw mean | raw ROIs | raw F raster | v21 mean | v21 ROIs | v21 F raster
 
 Open:
     suite2p GUI          → plane0/stat.npy
@@ -25,6 +26,7 @@ ChanB + cyto3 remains a wrong-prior control until an astrocyte model exists.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -50,17 +52,31 @@ from lab.configs.defaults import (
 SANDBOX = (
     Path(r"F:\bPACNewData2026") / "PreProcessing Optimization" / "Level3b copy"
 )
-V21 = SANDBOX / "inputs" / "defringed_v21"
 OUT = SANDBOX / "seg_runs"
 FS_HZ = 14.80  # Experiment.xml frameRate/averageNum
+KINDS = ("raw", "v21")
 TIFFS = {
-    "A": V21 / "ChanA" / "ChanA_stk_defringed_v21.tif",
-    "B": V21 / "ChanB" / "ChanB_stk_defringed_v21.tif",
+    "raw": {
+        "A": SANDBOX / "inputs" / "raw" / "ChanA" / "ChanA_stk.tif",
+        "B": SANDBOX / "inputs" / "raw" / "ChanB" / "ChanB_stk.tif",
+    },
+    "v21": {
+        "A": SANDBOX / "inputs" / "defringed_v21" / "ChanA" / "ChanA_stk_defringed_v21.tif",
+        "B": SANDBOX / "inputs" / "defringed_v21" / "ChanB" / "ChanB_stk_defringed_v21.tif",
+    },
 }
 
 
 def plane0_dir(save_path0: Path) -> Path:
     return save_path0 / SEG_EVAL["save_folder"] / "plane0"
+
+
+def bin_dir(kind: str, letter: str) -> Path:
+    return OUT / "_bin" / f"{kind}_cell" / f"Chan{letter}"
+
+
+def run_dir(kind: str, method: str, letter: str) -> Path:
+    return OUT / f"{kind}_cell_{method}" / f"Chan{letter}"
 
 
 def plane0_is_complete(plane: Path) -> bool:
@@ -96,10 +112,10 @@ def _db(tif_path: Path, save_path0: Path) -> dict:
     }
 
 
-def ensure_registered(letter: str, overwrite: bool) -> Path:
-    """Write one registered data.bin per channel (detection off)."""
-    tif = TIFFS[letter]
-    save_path0 = OUT / "_bin" / "v21_cell" / f"Chan{letter}"
+def ensure_registered(kind: str, letter: str, overwrite: bool) -> Path:
+    """Write one registered data.bin per kind×channel (detection off)."""
+    tif = TIFFS[kind][letter]
+    save_path0 = bin_dir(kind, letter)
     plane = plane0_dir(save_path0)
     bin_path = plane / "data.bin"
     if bin_path.exists() and not overwrite:
@@ -107,7 +123,7 @@ def ensure_registered(letter: str, overwrite: bool) -> Path:
         return plane
     if overwrite and save_path0.exists():
         shutil.rmtree(save_path0)
-    print(f"\n======== register Chan{letter} -> {save_path0} ========")
+    print(f"\n======== register {kind} Chan{letter} -> {save_path0} ========")
     ops = _ops_for(tif, save_path0, "temporal", detect=False)
     run_s2p(ops=ops, db=_db(tif, save_path0))
     if not bin_path.exists():
@@ -127,16 +143,16 @@ def clone_registered_plane(src_plane: Path, dest_save0: Path) -> Path:
     return dest_plane
 
 
-def run_method(letter: str, method: str, src_plane: Path, overwrite: bool) -> Path:
-    tif = TIFFS[letter]
-    save_path0 = OUT / f"v21_cell_{method}" / f"Chan{letter}"
+def run_method(kind: str, letter: str, method: str, src_plane: Path, overwrite: bool) -> Path:
+    tif = TIFFS[kind][letter]
+    save_path0 = run_dir(kind, method, letter)
     plane = plane0_dir(save_path0)
     if plane0_is_complete(plane) and not overwrite:
         print(f"  skip complete {plane}")
         return plane
     if overwrite and save_path0.exists():
         shutil.rmtree(save_path0)
-    print(f"\n======== {method} Chan{letter} -> {save_path0} ========")
+    print(f"\n======== {kind} {method} Chan{letter} -> {save_path0} ========")
     clone_registered_plane(src_plane, save_path0)
     ops = _ops_for(tif, save_path0, method, detect=True)
     ops["do_registration"] = 0
@@ -222,24 +238,27 @@ def load_plane_view(plane: Path) -> dict | None:
     mean = np.asarray(ops["meanImg"], dtype=np.float32)
     Ly, Lx = int(ops["Ly"]), int(ops["Lx"])
     fs = float(ops.get("fs", FS_HZ) or FS_HZ)
+    masks = masks_from_stat(stat, Ly, Lx)
+    occupied = float((masks > 0).mean()) if masks.size else 0.0
     return {
         "mean": mean,
-        "masks": masks_from_stat(stat, Ly, Lx),
+        "masks": masks,
         "F": np.asarray(F),
         "n_roi": int(len(stat)),
+        "coverage": occupied,
         "fs": fs,
     }
 
 
-def condition_title(method: str, letter: str, n_roi: int) -> str:
+def condition_title(kind: str, method: str, letter: str, n_roi: int) -> str:
     extra = "  (wrong prior)" if method == "cyto3" and letter == "B" else ""
-    return f"{method} Chan{letter}{extra}  n={n_roi}"
+    return f"{kind} {method} Chan{letter}{extra}  n={n_roi}"
 
 
-def draw_condition_row(fig, gs, row: int, view: dict, label: str):
-    ax_mean = fig.add_subplot(gs[row, 0])
-    ax_roi = fig.add_subplot(gs[row, 1])
-    ax_ras = fig.add_subplot(gs[row, 2])
+def draw_condition_row(fig, gs, row: int, col0: int, view: dict, label: str):
+    ax_mean = fig.add_subplot(gs[row, col0 + 0])
+    ax_roi = fig.add_subplot(gs[row, col0 + 1])
+    ax_ras = fig.add_subplot(gs[row, col0 + 2])
     overlay_rois(ax_mean, view["mean"], None, f"{label}  mean")
     overlay_rois(ax_roi, view["mean"], view["masks"], f"{label}  ROIs")
     im = plot_f_raster(ax_ras, view["F"], view["fs"], f"{label}  F raster (z / ROI)")
@@ -253,51 +272,81 @@ def draw_condition_row(fig, gs, row: int, view: dict, label: str):
 def write_condition_overview(save_path0: Path, view: dict, label: str) -> Path:
     fig = plt.figure(figsize=(14, 4.2), layout="constrained")
     gs = GridSpec(1, 3, figure=fig, width_ratios=[1, 1, 2.2])
-    draw_condition_row(fig, gs, 0, view, label)
+    draw_condition_row(fig, gs, 0, 0, view, label)
     out = save_path0 / "overview.png"
     fig.savefig(out, dpi=140)
     plt.close(fig)
     return out
 
 
-def write_compare_figure(methods: list[str]) -> Path | None:
-    rows = []
-    for method in methods:
-        for letter in ("A", "B"):
-            save_path0 = OUT / f"v21_cell_{method}" / f"Chan{letter}"
+def write_compare_figure(kinds: list[str], methods: list[str]) -> Path | None:
+    metrics = {
+        "fs": FS_HZ,
+        "kinds": kinds,
+        "methods": methods,
+        "spikedetect": False,
+        "conditions": {},
+    }
+    pair_rows = [(method, letter) for method in methods for letter in ("A", "B")]
+    views = {}
+    for kind in kinds:
+        for method, letter in pair_rows:
+            save_path0 = run_dir(kind, method, letter)
             plane = plane0_dir(save_path0)
             view = load_plane_view(plane)
+            key = f"{kind}_{method}_{letter}"
             if view is None:
-                print(f"  skip figure row, incomplete {plane}")
+                print(f"  skip figure cell, incomplete {plane}")
                 continue
-            label = condition_title(method, letter, view["n_roi"])
+            label = condition_title(kind, method, letter, view["n_roi"])
             write_condition_overview(save_path0, view, label)
-            rows.append((label, view))
-    if not rows:
-        print("  no complete planes; skip compare.png")
+            views[key] = (label, view)
+            metrics["conditions"][key] = {
+                "n_roi": view["n_roi"],
+                "coverage": view["coverage"],
+                "plane0": str(plane),
+            }
+    complete_rows = [
+        (method, letter)
+        for method, letter in pair_rows
+        if all(f"{kind}_{method}_{letter}" in views for kind in kinds)
+    ]
+    if not complete_rows:
+        print("  no complete raw/v21 pairs; skip compare.png")
         return None
-    fig = plt.figure(figsize=(14, 3.6 * len(rows)), layout="constrained")
-    gs = GridSpec(len(rows), 3, figure=fig, width_ratios=[1, 1, 2.2])
-    for i, (label, view) in enumerate(rows):
-        draw_condition_row(fig, gs, i, view, label)
+    n_kinds = len(kinds)
+    fig = plt.figure(figsize=(7.2 * n_kinds, 3.6 * len(complete_rows)), layout="constrained")
+    width_ratios = [1, 1, 2.0] * n_kinds
+    gs = GridSpec(len(complete_rows), 3 * n_kinds, figure=fig, width_ratios=width_ratios)
+    for i, (method, letter) in enumerate(complete_rows):
+        for k, kind in enumerate(kinds):
+            label, view = views[f"{kind}_{method}_{letter}"]
+            draw_condition_row(fig, gs, i, k * 3, view, label)
     fig.suptitle(
-        "v21 cell-ops  |  registered mean  |  ROIs  |  F raster (all detected ROIs)",
+        "cell-ops MC  |  raw vs v2.1  |  registered mean  |  ROIs  |  F raster (all detected ROIs)",
         fontsize=11,
     )
-    out_dir = OUT / "v21_cell_eval"
+    out_dir = OUT / "raw_vs_v21_eval"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "compare.png"
-    fig.savefig(out, dpi=140)
+    fig.savefig(out, dpi=130)
     plt.close(fig)
+    (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    print(json.dumps(metrics, indent=2))
     print(f"wrote {out}")
     return out
 
 
-def parse_methods(argv: list[str]) -> list[str]:
-    methods = list(SEG_EVAL["methods"])
+def _csv_arg(argv: list[str], flag: str, default: list[str]) -> list[str]:
+    values = list(default)
     for i, arg in enumerate(argv):
-        if arg == "--methods" and i + 1 < len(argv):
-            methods = [m.strip() for m in argv[i + 1].split(",") if m.strip()]
+        if arg == flag and i + 1 < len(argv):
+            values = [m.strip() for m in argv[i + 1].split(",") if m.strip()]
+    return values
+
+
+def parse_methods(argv: list[str]) -> list[str]:
+    methods = _csv_arg(argv, "--methods", list(SEG_EVAL["methods"]))
     unknown = [m for m in methods if m not in SEG_EVAL["methods"]]
     if unknown:
         raise ValueError(
@@ -306,20 +355,31 @@ def parse_methods(argv: list[str]) -> list[str]:
     return methods
 
 
+def parse_kinds(argv: list[str]) -> list[str]:
+    kinds = _csv_arg(argv, "--kinds", list(KINDS))
+    unknown = [k for k in kinds if k not in TIFFS]
+    if unknown:
+        raise ValueError(f"unknown kinds {unknown}; expected {KINDS}")
+    return kinds
+
+
 def main() -> int:
     overwrite = "--overwrite" in sys.argv
     methods = parse_methods(sys.argv)
-    for letter, path in TIFFS.items():
-        if not path.exists():
-            print(f"ERROR: missing {path}")
-            return 1
+    kinds = parse_kinds(sys.argv)
+    for kind in kinds:
+        for letter, path in TIFFS[kind].items():
+            if not path.exists():
+                print(f"ERROR: missing {path}")
+                return 1
     OUT.mkdir(parents=True, exist_ok=True)
-    for letter in ("A", "B"):
-        src = ensure_registered(letter, overwrite)
-        for method in methods:
-            run_method(letter, method, src, overwrite)
+    for kind in kinds:
+        for letter in ("A", "B"):
+            src = ensure_registered(kind, letter, overwrite)
+            for method in methods:
+                run_method(kind, letter, method, src, overwrite)
     print("\n======== compare.png ========")
-    write_compare_figure(methods)
+    write_compare_figure(kinds, methods)
     print("\nseg eval done. Open each Chan*/suite2p folder in either GUI.")
     return 0
 

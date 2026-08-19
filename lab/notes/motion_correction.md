@@ -1,6 +1,46 @@
 # Motion correction vs PMT fringes
 
-Last updated: 2026-08-18
+Last updated: 2026-08-19 (late)
+
+## Default scores (cell vs fringe family)
+
+Do not use `|ky|>0.05` as the pass. That half-plane mixes somata with
+fringes and sits *above* ChanA’s PMT family (`|ky|≈0.027`).
+
+Default (in `lab/pipeline/mc_fft_metrics.py`, wired into
+`compare_mc_channels.py`):
+
+- **Fringe power:** 2D-FFT power inside the v2.1 `signature.json` mask
+  (union of seed `q`/`hi` + tracking-block `q`, plus `fx` ranges).
+- **Cell power:** mid-band annulus (FFT radius 8–48 bins) minus that mask.
+- Pass: cell power ratio (reg/unreg) > 1 and fringe power ratio ≲ 1.
+  Use **absolute band power**, not fraction of total power.
+
+Honest rescore 2026-08-19 (raw_cell re-registered after the alias fix):
+
+| run | cell A/B | fringe A/B |
+|---|---|---|
+| `raw_cell` | 1.95 / 1.34 | 1.88 / 10.5 |
+| `v21_cell` | 1.95 / 1.33 | 1.90 / 13.0 |
+| `v21_cell_shareA` | 1.95 / 1.35 | 1.90 / 3.91 |
+
+All `both_up`. Registered means are crispier; the PMT family also
+re-freezes. Share-A reduces B-family freeze vs independent B but does
+not pass. SUPPORT should use the same pair of scores on defringed vs
+denoised means ([HANDOFF_FOR_SUPPORT.md](HANDOFF_FOR_SUPPORT.md)).
+
+## Alias bug (fixed 2026-08-19)
+
+`to_int16_s2p` returns the same array when the movie is already int16.
+Suite2p then writes registered frames into that array. We used to take
+`mean_unregistered` and apply shifts **after** that, so estimate-path
+means were once-shifted vs twice-shifted. Apply-only (share-A ChanB) was
+honest. Alignment movies are now a **copy**; unregistered mean is snapped
+before estimate.
+
+Recomputed `mc_runs/v21_cell`, `v21_cell_shareA`, and `raw_cell`. Legacy
+`raw_legacy` / `raw_cell_shareA` / `raw_cell_lowpass` figures may still
+be from the buggy path until re-run.
 
 ## Why this is first
 
@@ -97,8 +137,8 @@ Look at `suite2p_cellreg/diagnostics_register.png` and `offsets.npz`.
 
 On a fringe-heavy run (LED_x15_Level1 or similar):
 
-1. Mean `cmax` higher than ~0.01?
-2. Registered mean fringes **weaker or similar**, not sharper, vs `stk_avg`?
+1. Mean `cmax` higher than ~0.01? (not a success metric)
+2. **Cell power** up vs unregistered mean, **fringe-family power** flat or down?
 3. If both channels: yoff correlation ChanA vs ChanB up from ~0.07?
 4. Cells in a movie scrub: follow mouse motion, fringes stay put or drift slowly?
 5. Weak-cmax frames interpolated, not huge junk jumps?

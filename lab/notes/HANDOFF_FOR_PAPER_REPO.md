@@ -7,27 +7,37 @@
 **This file is the entry point.** Read it before `CURRENT.md` or the bakeoff
 figures. Do not edit MouseLand `suite2p/` or re-implement defringe here.
 
-Last updated: 2026-08-18 (evening).
+Last updated: 2026-08-19 (late).
 
 **Status (read this first):**
 
 - Full-stack **v2.1** is promoted:
   `F:\bPACNewData2026\PreProcessing Optimization\Level3b copy\inputs\defringed_v21\`
-- Independent cell-ops MC on that stack (`mc_runs/v21_cell`) is the first
-  condition where **ChanB registered ridge does not exceed** the defringed
-  unregistered mean. A/B yoff still agrees (~0.93). Share-A is **not** a pass.
-- Raw MC (`raw_cell`) is **not** safe for traces (ChanB ridges sharpen).
-- **Do not extract paper traces yet.** CellPose on unregistered means barely
-  changed (motion smear). Next here: CellPose on *registered* means, then
-  temporal suite2p.
-- Fig 1 **stills:** keep assembled `stk_avg`. Do **not** use
-  `raw_cell_lowpass` registered means (pretty, but ChanA ridge 0.18 → 0.43).
+- Default MC scores are now **cell-band power** vs **PMT-family fringe
+  power** (not the old `|ky|>0.05` half-plane). Code:
+  `lab/pipeline/mc_fft_metrics.py`. SUPPORT-facing copy:
+  [HANDOFF_FOR_SUPPORT.md](HANDOFF_FOR_SUPPORT.md).
+- Honest unreg vs reg (same movie mean; alias bug fixed). **All three**
+  cell-ops runs sharpen cells **and** re-freeze the PMT family (`both_up`):
+
+  | run | cell A/B | fringe A/B |
+  |---|---|---|
+  | `raw_cell` | 1.95 / 1.34 | 1.88 / **10.5** |
+  | `v21_cell` | 1.95 / 1.33 | 1.90 / **13.0** |
+  | `v21_cell_shareA` | 1.95 / 1.35 | 1.90 / **3.91** |
+
+  Share-A does **not** stop B-family freeze, but it is much less bad than
+  estimating B. v2.1 does not change ChanA MC ratios vs raw. Retract the
+  earlier “ChanB ridge pass.” A/B yoff still agrees (~0.93–0.95).
+- Raw MC (`raw_cell`) is **not** safe for traces.
+- **Do not extract paper traces yet.** Fig 1 **stills:** keep assembled
+  `stk_avg`. Do **not** use `raw_cell_lowpass` registered means.
 
 | Clone (local) | `C:\Users\rasmu\Projects\Repos\suite2p` |
 |---|---|
 | GitHub | https://github.com/RasHerlo/suite2p |
 | Interpreter | `C:\Users\rasmu\anaconda3\envs\suite2p\python.exe` (not WindowsApps `python`) |
-| Deeper notes | [CURRENT.md](CURRENT.md), [motion_correction.md](motion_correction.md), [segmentation.md](segmentation.md) |
+| Deeper notes | [CURRENT.md](CURRENT.md), [motion_correction.md](motion_correction.md), [segmentation.md](segmentation.md), [HANDOFF_FOR_SUPPORT.md](HANDOFF_FOR_SUPPORT.md) |
 
 If this path is missing on GitHub `main`, use the **local clone** — lab notes
 and MC scripts may be ahead of the last push.
@@ -80,7 +90,8 @@ Never share shift traces between raw/defringed (5400) and SUPPORT (5340).
 Code (run from suite2p repo root):
 
 - `lab/pipeline/fringe_robust_register.py` — cell-oriented register (`REGISTRATION` in `lab/configs/defaults.py`)
-- `lab/pipeline/compare_mc_channels.py` — A vs B shifts, `cmax`, Fourier-y ridge vs `stk_avg`
+- `lab/pipeline/mc_fft_metrics.py` — default scores: PMT-family fringe power vs mid-band cell power from `signature.json`
+- `lab/pipeline/compare_mc_channels.py` — A vs B shifts, `cmax`, fringe/cell ratios vs unregistered mean (legacy `|ky|>0.05` still in JSON)
 - `lab/pipeline/run_mc_raw_bakeoff.py` — independent raw A/B, legacy vs cell
 - `lab/pipeline/run_mc_raw_followup.py` — share ChanA shifts onto B; independent lowpass
 
@@ -122,10 +133,39 @@ F:\bPACNewData2026\PreProcessing Optimization\Level3b copy\mc_runs\raw_cell_lowp
 JSON next to each PNG. Per-channel: `ChanA|B/offsets.npz`, `ops.npy`,
 `diagnostics_register.png`. Full registered TIFFs were **not** written (disk).
 
-Ridge metric: fraction of 2D-FFT power at `|ky| > 0.05` (~finer than 20 px in y)
-on the **mean image**. Horizontal PMT ridges live in Fourier-y. Registered ridge
-**must not exceed** `stk_avg`. A falling ChanA ratio can be sharper somata in
-the denominator; a **rising ChanB ratio** means stripes added coherently.
+**Default metrics (2026-08-19, use these):** 2D-FFT of the **mean image**,
+DC removed. Masks from the v2.1 `signature.json` (union of seed `q`/`hi` and
+tracking-block `q`, plus `fx_ranges`). See [HANDOFF_FOR_SUPPORT.md](HANDOFF_FOR_SUPPORT.md).
+
+- **Fringe power:** `|FFT|²` inside the PMT family mask. Ratio reg/unreg > 1
+  = that family was lined up (or hallucinated, if the step is denoising).
+- **Cell power:** `|FFT|²` in an annulus (FFT radius 8–48 bins, ~64–11 px)
+  *minus* the family mask. Ratio > 1 = tissue sharper.
+- Pass: cell ratio > 1 and fringe ratio ≲ 1. **Do not** use fringe *fraction*
+  of total power as the pass: ChanA fraction can fall while absolute family
+  power still ~1.9× (cells rose too).
+- Legacy `|ky|>0.05` ridge is secondary. It mixes somata with fringes and
+  sits *above* ChanA’s family (`|ky|≈0.027`).
+
+### Honest rescore (2026-08-19 late) — raw vs v21 vs share-A
+
+Unregistered mean is the true movie mean (`mean_unregistered.npy`), after
+the register-alias fix. Signatures:
+`defringe_runs/v21_full_seeded500/ChanA|B/diagnostics/signature.json`.
+
+| run | xoff r | yoff r | cell power A/B | fringe power A/B | verdict |
+|---|---|---|---|---|---|
+| `mc_runs/raw_cell` | 0.974 | 0.950 | 1.95 / 1.34 | 1.88 / **10.5** | both_up |
+| `mc_runs/v21_cell` | 0.975 | 0.935 | 1.95 / 1.33 | 1.90 / **13.0** | both_up |
+| `mc_runs/v21_cell_shareA` | 1.00* | 1.00* | 1.95 / 1.35 | 1.90 / **3.91** | both_up |
+
+\*share-A copies ChanA offsets onto B. Legacy ridge still rises (A ~0.18→0.45,
+B ~0.034→0.07) on all three; that metric cannot see that share-A cuts B
+**family** freeze from 13× to 3.9×.
+
+Reading: registered means *are* crispier (cell band). They also re-freeze
+the PMT family, especially independent ChanB. v2.1 does not spare ChanA MC.
+Do not promote any of these for paper traces.
 
 ---
 
@@ -152,12 +192,12 @@ the denominator; a **rising ChanB ratio** means stripes added coherently.
 9. **Do not use `inputs/defringed/` (v2) as the delivered stack.** Use
     `inputs/defringed_v21/` (full 5400-frame v2.1).
 10. **Do not judge MC by median `cmax` going up**, or by a crisp registered
-    mean. Lowpass ChanA looks sharp and **fails** the ridge test (0.18 → 0.43).
-    Fig 1 stills stay on `stk_avg` until a registered mean passes ridge **and**
-    eye QC.
-11. **Do not extract traces from `v21_cell` yet.** ChanB ridge pass is
-    necessary, not sufficient (share-A still raises B ridge; no temporal
-    ROIs yet).
+    mean. Lowpass ChanA looks sharp and **fails** fringe-family power.
+    Fig 1 stills stay on `stk_avg` until a registered mean passes **cell up,
+    fringe not up**, plus eye QC.
+11. **Do not extract traces from `v21_cell` yet.** Cell band rises (~2× A,
+    ~1.3× B) but the PMT family also rises (A ~1.9×, independent B ~13×).
+    Share-A still raises B family (~3.9×).
 12. Legacy master order
     `SUPPORT → register → defringe` **feeds phasecorr the worst texture.**
     Preferred: `assemble → defringe v2.1 → (optional SUPPORT) → register → segment`.
@@ -195,21 +235,26 @@ numbers differ; the mechanism does not.
 
 Promoted: `inputs/defringed_v21/ChanA|B/*_stk_defringed_v21.tif` (5400 frames).
 
-**MC** (`mc_runs/v21_cell`, cell-ops independent; ridge vs *defringed*
-unregistered mean):
+**MC** (`mc_runs/v21_cell` independent and `v21_cell_shareA`; scores vs
+*defringed* unregistered mean, signature-mask metrics):
 
 - A/B xoff r=0.98, yoff r=0.93 (similar to raw_cell).
-- ChanB registered ridge **0.057 vs 0.072 unreg** — first time B does not
-  promote ridges. Raw_cell was 0.085 vs 0.035 (fail).
-- ChanA 0.143 vs 0.452 (fraction; v21 unreg mean has a large ky share).
-- Share-A (`v21_cell_shareA`) still raises B ridge; do not treat as pass.
+- Cell power up on both (A ~1.95×, B ~1.33×). Fringe-family power also up
+  (A ~1.90×, independent B **13×**, share-A B **3.9×**). All `both_up`.
+- Retract the earlier “ChanB ridge pass” (that compared a once-shifted mean
+  to a twice-shifted mean, and used the too-wide `|ky|>0.05` cut).
+
+**Seg+extraction (2026-08-19)** `seg_runs/raw_vs_v21_eval/`:
+raw vs v21, cell-ops MC, temporal + cyto3, F/Fneu, no OASIS.
+n ROI temporal A 229→109; cyto3 A 502→469; temporal B 4/6; cyto3 B 28→14.
+Open `seg_runs/<kind>_cell_<method>/ChanA|B/suite2p/`.
 
 **CellPose cyto3** on unregistered means (`seg_runs/cellpose_full/`):
 raw vs v21 almost the same (ChanA 122 vs 116 ROIs). Motion smear dominates.
 ChanB 11–12 ROIs with soma model (wrong prior). Overlay `compare.png`.
 
-Not done: GUI-evaluable seg+extraction (`run_seg_eval.py`); paper traces.
-The `cellpose_full` peek is masks-only and is **not** a `plane0` deliverable.
+Not done: paper traces; astrocyte model on ChanB. `cellpose_full` is
+masks-only and is **not** the `plane0` deliverable.
 
 ### Defringe repo
 
@@ -226,9 +271,8 @@ Full-stack v2.1 delivered. Further knobs live in that repo.
 
 ### Next in this repo (not paper traces)
 
-1. `lab/pipeline/run_seg_eval.py`: temporal vs CellPose `cyto3` on the
-   v21 cell-ops registered movie. Each arm writes `suite2p/plane0` with
-   `stat` / `F` / `Fneu` / `data.bin` (no OASIS). Open in suite2p GUI and
+1. Inspect `seg_runs/raw_vs_v21_eval/compare.png` and open the `plane0`
+   folders in suite2p GUI and
    [s2p_Trace_Curation](https://github.com/RasHerlo/s2p_Trace_Curation).
 2. Astrocyte model / not stock `cyto3` on ChanB.
 
@@ -243,9 +287,9 @@ Do not spend more raw-MC cycles expecting paper-grade ROIs. Do not put
 
 1. This file (status + warnings + plan).
 2. Sandbox `README_SANDBOX.md`.
-3. MC: `mc_runs/raw_cell/compare_AB.png`, `mc_runs/v21_cell/compare_AB.png`
-   (+ `.json`). Lowpass is a negative example:
-   `mc_runs/raw_cell_lowpass/compare_AB.png`.
+3. MC: `mc_runs/raw_cell/compare_AB.png`, `mc_runs/v21_cell/compare_AB.png`,
+   `mc_runs/v21_cell_shareA/compare_AB.png` (+ `.json`; cell/fringe ratios).
+   Lowpass is a negative example: `mc_runs/raw_cell_lowpass/compare_AB.png`.
 4. CellPose: `seg_runs/cellpose_full/compare.png` + `metrics.json`.
 5. `lab/notes/motion_correction.md` for ops rationale.
 

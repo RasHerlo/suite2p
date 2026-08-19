@@ -1,12 +1,14 @@
 # Current work
 
-Last updated: 2026-08-19
+Last updated: 2026-08-19 (late)
 
 **Paper / catalog agent:** [HANDOFF_FOR_PAPER_REPO.md](HANDOFF_FOR_PAPER_REPO.md)
-(not this scratchpad).
+(not this scratchpad). SUPPORT agent: [HANDOFF_FOR_SUPPORT.md](HANDOFF_FOR_SUPPORT.md).
 
-**Active:** independent cell-ops MC on full-stack **v2.1**. Next seg test must
-write GUI-openable `suite2p/plane0` (detection + F/Fneu, no deconv).
+**Active:** signature-mask **cell vs fringe** scores are the default MC
+metrics (`lab/pipeline/mc_fft_metrics.py`). Honest rescore of `raw_cell`
+(re-registered), `v21_cell`, `v21_cell_shareA`: all `both_up`. Seg bakeoff
+still waiting GUI/s2p_Trace_Curation look. Do not extract paper traces yet.
 
 **Do not:** re-implement defringe here; turn on `1Preg`; extract Fig 1 traces
 yet; use lowpass registered means as Fig 1 stills (use `stk_avg`).
@@ -14,17 +16,33 @@ yet; use lowpass registered means as Fig 1 stills (use `stk_avg`).
 **v2.1 full stacks (2026-08-18 evening):**
 `inputs/defringed_v21/ChanA|B/*_stk_defringed_v21.tif` (5400×512×512).
 
-**MC on v21** (ridge vs *defringed* unregistered mean, not raw `stk_avg`):
+**MC scores (2026-08-19 late), reg/unreg power, v2.1 `signature.json`:**
 
-| | xoff r | yoff r | ChanA ridge reg vs unreg | ChanB ridge reg vs unreg |
+| | xoff r | yoff r | cell A/B | fringe A/B |
 |---|---|---|---|---|
-| `raw_cell` (ref) | 0.97 | 0.95 | 0.139 vs 0.179 | **0.085 vs 0.035** |
-| `v21_cell` | 0.98 | 0.93 | 0.143 vs 0.452 | **0.057 vs 0.072** |
-| `v21_cell_shareA` | 1.00* | 1.00* | 0.143 vs 0.452 | **0.076 vs 0.034** |
+| `raw_cell` | 0.974 | 0.950 | 1.95 / 1.34 | 1.88 / **10.5** |
+| `v21_cell` | 0.975 | 0.935 | 1.95 / 1.33 | 1.90 / **13.0** |
+| `v21_cell_shareA` | 1.00* | 1.00* | 1.95 / 1.35 | 1.90 / **3.91** |
 
-Independent v21: first time ChanB registered ridge **does not exceed** its unregistered mean. A/B still agree. Share-A still raises B ridge (and B unreg baseline does not match the independent-B mean — treat share-A ridge_avg_B with care).
+Cell band matches the crispier registered means. PMT family also rises
+(independent B badly). Share-A cuts B-family freeze vs estimating B but
+does not pass. Legacy `|ky|>0.05` ridge still rises (A ~0.18→0.45, B
+~0.034→0.07) and cannot see the share-A vs independent B family gap.
+ChanA fringe *fraction* can fall while absolute family power is still
+~1.9× — use power ratios. Figures: `mc_runs/<run>/compare_AB.png`.
 
-Figures: `mc_runs/v21_cell/compare_AB.png`, `mc_runs/v21_cell_shareA/compare_AB.png`.
+**Seg+extraction bakeoff (2026-08-19), cell-ops registered movie, F/Fneu, no OASIS:**
+
+| | raw n ROI | v21 n ROI |
+|---|---|---|
+| temporal A | 229 | 109 |
+| temporal B | 4 | 6 |
+| cyto3 A | 502 | 469 |
+| cyto3 B (wrong prior) | 28 | 14 |
+
+v21 temporal ChanA ~halves ROI count vs raw. cyto3 ChanA stays dense (~500).
+Temporal ChanB still almost empty. Figure: `seg_runs/raw_vs_v21_eval/compare.png`.
+`plane0` folders: `seg_runs/<kind>_cell_<method>/ChanA|B/suite2p/`.
 
 **CellPose `cyto3` on unregistered full-stack means** (no MC; ChanB = wrong prior):
 
@@ -35,12 +53,9 @@ Figures: `mc_runs/v21_cell/compare_AB.png`, `mc_runs/v21_cell_shareA/compare_AB.
 
 A vs B mask overlap 0.05–0.08 (not a shared stripe field). Counts barely change: motion smear in the unregistered mean dominates CellPose. Overlay: `seg_runs/cellpose_full/compare.png`.
 
-**Next:** `python lab/pipeline/run_seg_eval.py` — temporal vs `cyto3` on the
-v21 cell-ops registered movie, each arm a `suite2p/plane0` with F and Fneu.
-Compare figure: registered mean | ROIs | F raster
-(`seg_runs/v21_cell_eval/compare.png`). Evaluate in this repo’s suite2p GUI
-and in s2p_Trace_Curation. Do not extract paper traces yet. The 2026-08-18
-`cellpose_full` peek is not that deliverable.
+**Next:** inspect `seg_runs/raw_vs_v21_eval/compare.png` and open `plane0`
+folders in this repo’s suite2p GUI and in s2p_Trace_Curation. Do not extract
+paper traces yet. The 2026-08-18 `cellpose_full` peek is not that deliverable.
 
 **Scope:** this repo does **not** defringe. Stacks arrive already processed
 upstream if needed ([derippling_PMT_noise](https://github.com/RasHerlo/derippling_PMT_noise)).
@@ -49,6 +64,7 @@ Here: motion correction, then segmentation.
 **Read next:**
 
 - [notes/motion_correction.md](motion_correction.md)
+- [pipeline/mc_fft_metrics.py](../pipeline/mc_fft_metrics.py)
 - [pipeline/fringe_robust_register.py](../pipeline/fringe_robust_register.py)
 - [configs/defaults.py](../configs/defaults.py) → `REGISTRATION`
 

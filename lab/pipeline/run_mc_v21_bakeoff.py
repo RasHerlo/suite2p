@@ -64,8 +64,12 @@ def run_share_a(overwrite):
         return 1
     dst_a = out / "ChanA"
     dst_b = out / "ChanB"
+    if overwrite and out.exists():
+        shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
-    if not (dst_a / "offsets.npz").exists():
+    if overwrite or not (dst_a / "offsets.npz").exists():
+        if dst_a.exists():
+            shutil.rmtree(dst_a)
         shutil.copytree(src_a, dst_a)
         print(f"copied ChanA products -> {dst_a}")
     if overwrite and dst_b.exists():
