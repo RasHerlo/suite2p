@@ -9,11 +9,11 @@ than residual high-frequency texture.
 Does not enable 1Preg. Writes suite2p_cellreg/ so legacy suite2p files/
 is left alone.
 
-Default (share-A): estimate the align channel (ChanA), apply those shifts
-to ChanB so both PMTs stay on the same tissue layer, and still estimate
-ChanB independently. Independent ChanB is *not* used for traces; its
-meanImg is kept as an ROI-curation guide (residual fringes). A warning is
-raised if independent B shifts disagree with the shared A traces.
+Default: estimate the neuron PMT (`align_channel`: Shinano A, Musashi B),
+apply those shifts to the other channel, and still estimate the non-align
+PMT independently. Independent MC is *not* used for traces; its meanImg is
+kept as an ROI-curation guide (residual fringes). A warning is raised if
+those shifts disagree with the shared neuron traces.
 
 Usage
 -----
@@ -45,7 +45,12 @@ from tifffile import imread, imwrite
 from suite2p import default_ops
 from suite2p.registration import register
 
-from lab.configs.defaults import REGISTRATION, REGISTRATION_LEGACY
+from lab.configs.defaults import (
+    REGISTRATION,
+    REGISTRATION_LEGACY,
+    apply_acquisition_to_ops,
+    apply_microscope_to_registration,
+)
 
 
 def channel_letter_from_path(path):
@@ -135,6 +140,7 @@ def build_ops(output_dir, cfg, nframes, ly, lx):
     ops["nframes"] = nframes
     ops["Ly"] = ly
     ops["Lx"] = lx
+    apply_acquisition_to_ops(ops, output_dir)
     return ops
 
 
@@ -217,7 +223,10 @@ def estimate_and_apply(mov, channel_letter, output_dir, cfg, offsets=None):
         savez["xoff1"] = xoff1
     np.savez(output_dir / "offsets.npz", **savez)
     if cfg.get("write_data_bin"):
-        _write_plane0_bin(output_dir, registered, ops_save)
+        _write_plane0_bin(
+            output_dir, registered, ops_save,
+            save_folder=cfg.get("bin_save_folder", "suite2p"),
+        )
     _save_diagnostics(output_dir, mov, registered, yoff, xoff, cmax, good, mean_img)
     return {
         "yoff": yoff,
@@ -274,13 +283,26 @@ def _save_diagnostics(output_dir, original, registered, yoff, xoff, cmax, good, 
     plt.close()
 
 
-def _write_plane0_bin(output_dir, registered, ops_save):
-    """GUI-openable registered movie next to MC products (optional, large)."""
-    plane = Path(output_dir) / "suite2p" / "plane0"
+def _write_plane0_bin(output_dir, registered, ops_save, chunk=100, save_folder="suite2p"):
+    """GUI-openable registered movie next to MC products (optional, large).
+
+    Write in frame chunks so we do not allocate a second full int16 copy
+    of a 5400-frame stack (that OOM/page-locks next to SUPPORT training).
+    """
+    plane = Path(output_dir) / save_folder / "plane0"
     plane.mkdir(parents=True, exist_ok=True)
-    mov = np.clip(np.rint(np.asarray(registered)), -32768, 32767).astype(np.int16)
+    arr = np.asarray(registered)
+    nframes = int(arr.shape[0])
     bin_path = plane / "data.bin"
-    mov.tofile(bin_path)
+    tmp_path = plane / "data.bin.partial"
+    print(f"    writing {bin_path} ({nframes} frames, chunk={chunk})")
+    with open(tmp_path, "wb") as f:
+        for i0 in range(0, nframes, chunk):
+            sl = arr[i0 : i0 + chunk]
+            np.clip(np.rint(sl), -32768, 32767).astype(np.int16).tofile(f)
+            if i0 == 0 or ((i0 // chunk) % 10 == 0):
+                print(f"      bin {min(i0 + chunk, nframes)}/{nframes}", flush=True)
+    tmp_path.replace(bin_path)
     ops = deepcopy(ops_save)
     ops["do_registration"] = 0
     ops["reg_file"] = str(bin_path)
@@ -344,76 +366,85 @@ def shift_agreement(share, independent, cfg=None):
     }
 
 
-def _emit_shift_warning(stats, chan_b_dir):
+def _emit_shift_warning(stats, out_dir, letter, align_letter):
     lines = [
-        "WARNING: independent ChanB shifts disagree with share-A (ChanA) traces.",
+        f"WARNING: independent Chan{letter} shifts disagree with "
+        f"shared Chan{align_letter} traces.",
         f"  xoff r={stats['pearson_xoff']:.3f}  yoff r={stats['pearson_yoff']:.3f}"
         f"  median |dx|={stats['median_abs_dx']:.2f} px  median |dy|={stats['median_abs_dy']:.2f} px",
-        "  Processing still uses share-A so both channels stay on the same tissue layer.",
-        "  Independent ChanB likely locked to residual fringes; treat ROIs there as less trustworthy.",
-        f"  Guide image: {chan_b_dir / 'independent_meanImg.png'}",
+        f"  Processing still uses Chan{align_letter} shifts so both PMTs stay on one tissue layer.",
+        f"  Independent Chan{letter} likely locked to residual fringes; "
+        "treat ROIs there as less trustworthy.",
+        f"  Guide image: {Path(out_dir) / 'independent_meanImg.png'}",
     ]
     text = "\n".join(lines)
     print(text)
-    (chan_b_dir / "SHIFT_AGREEMENT_WARNING.txt").write_text(text + "\n", encoding="utf-8")
+    (Path(out_dir) / "SHIFT_AGREEMENT_WARNING.txt").write_text(text + "\n", encoding="utf-8")
 
 
-def _save_roi_guide(chan_b_dir, share_mean, indep_mean):
-    """Two-panel PNG: processing (share-A) mean vs independent B mean."""
+def _save_roi_guide(out_dir, share_mean, indep_mean, letter, align_letter):
+    """Two-panel PNG: shared-shift mean vs independent mean (fringe guide)."""
     fig, axes = plt.subplots(1, 2, figsize=(11, 5.5))
     for ax, img, title in (
-        (axes[0], share_mean, "ChanB share-A mean (processing)"),
-        (axes[1], indep_mean, "ChanB independent mean (fringe guide)"),
+        (axes[0], share_mean, f"Chan{letter} share-{align_letter} mean (processing)"),
+        (axes[1], indep_mean, f"Chan{letter} independent mean (fringe guide)"),
     ):
         lo, hi = np.percentile(img, (1, 99))
         ax.imshow(img, cmap="gray", vmin=lo, vmax=hi)
         ax.set_title(title, fontsize=10)
         ax.axis("off")
     fig.tight_layout()
-    out = Path(chan_b_dir) / "roi_guide_independent_vs_shareA.png"
+    out = Path(out_dir) / f"roi_guide_independent_vs_share{align_letter}.png"
     fig.savefig(out, dpi=130)
     plt.close(fig)
     return out
 
 
-def run_independent_chanb(tif_path, chan_b_dir, share_offsets, cfg, overwrite=False):
-    """Estimate ChanB on its own; keep meanImg as an ROI guide, not the movie."""
-    chan_b_dir = Path(chan_b_dir)
-    indep_dir = chan_b_dir / "independent_mc"
+def run_independent_nonalign(
+    tif_path, out_dir, share_offsets, cfg, letter, align_letter, overwrite=False
+):
+    """Estimate the non-align PMT on its own; keep meanImg as an ROI guide."""
+    out_dir = Path(out_dir)
+    indep_dir = out_dir / "independent_mc"
     already = (indep_dir / "offsets.npz").exists()
     cfg_ind = deepcopy(cfg)
     cfg_ind["write_registered_tif"] = False
     cfg_ind["write_data_bin"] = False
     if already and not overwrite:
-        print(f"  reuse independent ChanB MC {indep_dir}")
+        print(f"  reuse independent Chan{letter} MC {indep_dir}")
         z = np.load(indep_dir / "offsets.npz")
         indep = {k: z[k] for k in ("yoff", "xoff", "cmax", "good") if k in z.files}
         ops = np.load(indep_dir / "ops.npy", allow_pickle=True).item()
         indep["mean_img"] = ops["meanImg"]
     else:
-        print("    independent ChanB estimate (guide only; not used for traces)")
+        print(
+            f"    independent Chan{letter} estimate (guide only; not used for traces)"
+        )
         indep = process_tiff(
             tif_path,
             output_dir=indep_dir,
-            channel_letter="B",
+            channel_letter=letter,
             cfg=cfg_ind,
             offsets=None,
         )
-    share_ops = np.load(chan_b_dir / "ops.npy", allow_pickle=True).item()
+    share_ops = np.load(out_dir / "ops.npy", allow_pickle=True).item()
     share_mean = np.asarray(share_ops["meanImg"])
     indep_mean = np.asarray(indep["mean_img"])
-    np.save(chan_b_dir / "independent_meanImg.npy", indep_mean.astype(np.float32))
-    _save_gray_png(chan_b_dir / "independent_meanImg.png", indep_mean)
-    _save_roi_guide(chan_b_dir, share_mean, indep_mean)
+    np.save(out_dir / "independent_meanImg.npy", indep_mean.astype(np.float32))
+    _save_gray_png(out_dir / "independent_meanImg.png", indep_mean)
+    _save_roi_guide(out_dir, share_mean, indep_mean, letter, align_letter)
     stats = shift_agreement(share_offsets, indep, cfg)
-    warn_path = chan_b_dir / "SHIFT_AGREEMENT_WARNING.txt"
+    stats["align_channel"] = align_letter
+    stats["independent_channel"] = letter
+    stats["processing_other"] = f"share_{align_letter}"
+    warn_path = out_dir / "SHIFT_AGREEMENT_WARNING.txt"
     if stats["warned"]:
-        _emit_shift_warning(stats, chan_b_dir)
+        _emit_shift_warning(stats, out_dir, letter, align_letter)
     elif warn_path.exists():
         warn_path.unlink()
-    (chan_b_dir / "shift_agreement.json").write_text(json.dumps(stats, indent=2), encoding="utf-8")
+    (out_dir / "shift_agreement.json").write_text(json.dumps(stats, indent=2), encoding="utf-8")
     print(
-        "    shift agreement vs share-A: "
+        f"    shift agreement vs share-{align_letter}: "
         f"x r={stats['pearson_xoff']:.3f}  y r={stats['pearson_yoff']:.3f}  "
         f"median |d| x/y={stats['median_abs_dx']:.2f}/{stats['median_abs_dy']:.2f} px"
         + ("  WARN" if stats["warned"] else "")
@@ -424,26 +455,16 @@ def run_independent_chanb(tif_path, chan_b_dir, share_offsets, cfg, overwrite=Fa
 def find_input_tiff(folder, cfg, letter=None):
     folder = Path(folder)
     letter = letter or channel_letter_from_path(folder)
+    template = cfg.get("input_tiff_template") or "Chan{letter}_stk_defringed_v22.tif"
     names = []
-    if letter == "A":
-        names.extend([
-            "ChanA_stk_defringed_v22.tif",
-            "ChanA_stk_defringed_v21.tif",
-            "ChanA_stk.tif",
-            "ChanA_stk_defringed.tif",
-            "denoised_cut.tif",
-        ])
-    elif letter == "B":
-        names.extend([
-            "ChanB_stk_defringed_v22.tif",
-            "ChanB_stk_defringed_v21.tif",
-            "ChanB_stk.tif",
-            "ChanB_stk_defringed.tif",
-            "denoised_cut.tif",
-        ])
+    if letter in ("A", "B"):
+        names.append(template.format(letter=letter, Letter=letter))
     for extra in cfg.get("input_tiff_names") or ():
-        if extra not in names:
-            names.append(extra)
+        extra_s = str(extra)
+        if "{letter}" in extra_s or "{Letter}" in extra_s:
+            extra_s = extra_s.format(letter=letter, Letter=letter)
+        if extra_s not in names:
+            names.append(extra_s)
     for name in names:
         path = folder / name
         if path.exists():
@@ -470,11 +491,20 @@ def process_tiff(tif_path, output_dir=None, channel_letter=None, cfg=None, offse
     return estimate_and_apply(mov, channel_letter, output_dir, cfg, offsets=offsets)
 
 
+_CHANNEL_FOLDER_NAMES = frozenset({"ChanA", "ChanB", "SUPPORT_ChanA", "SUPPORT_ChanB"})
+
+
 def _support_folders(root, cfg=None):
+    """Find ChanA/B (and SUPPORT_ChanA/B) dirs that contain a known stack.
+
+    Ignore ChanA_defringe, nested bakeoff folders, etc. Preferring SUPPORT_
+    over ChanA inside original DATA/ would register 5340-frame denoised_cut
+    instead of the 5400-frame v22 stk.
+    """
     root = Path(root)
     found = {"A": [], "B": []}
     for folder in root.rglob("*"):
-        if not folder.is_dir():
+        if not folder.is_dir() or folder.name not in _CHANNEL_FOLDER_NAMES:
             continue
         letter = channel_letter_from_path(folder)
         if letter in found and find_input_tiff(folder, cfg or REGISTRATION, letter=letter):
@@ -490,7 +520,37 @@ def _pair_key(folder):
     return str(p.parent)
 
 
-def process_tree(root, cfg, share_shifts=True, overwrite=False, output_root=None):
+def _bin_expected_bytes(ops):
+    return int(ops["nframes"]) * int(ops["Ly"]) * int(ops["Lx"]) * 2
+
+
+def _output_complete(out, cfg):
+    """True if this channel can be skipped. Incomplete data.bin does not count."""
+    out = Path(out)
+    if not (out / "offsets.npz").exists() and not (out / "combined_registered.tif").exists():
+        return False
+    if not cfg.get("write_data_bin"):
+        return True
+    save_folder = cfg.get("bin_save_folder", "suite2p")
+    bin_path = out / save_folder / "plane0" / "data.bin"
+    if not bin_path.is_file():
+        return False
+    ops_path = out / "ops.npy"
+    if not ops_path.is_file():
+        return False
+    ops = np.load(ops_path, allow_pickle=True).item()
+    expected = _bin_expected_bytes(ops)
+    size = bin_path.stat().st_size
+    if size != expected:
+        print(f"  incomplete data.bin {size} != {expected} bytes -> re-run {out}")
+        return False
+    return True
+
+
+def process_tree(
+    root, cfg, share_shifts=True, overwrite=False, output_root=None, align_override=None
+):
+    cfg = apply_microscope_to_registration(cfg, root, align_override=align_override)
     found = _support_folders(root, cfg)
     groups = {}
     for letter, folders in found.items():
@@ -498,9 +558,12 @@ def process_tree(root, cfg, share_shifts=True, overwrite=False, output_root=None
             key = _pair_key(folder)
             pair = groups.setdefault(key, {})
             previous = pair.get(letter)
-            prefer_support = Path(folder).name.startswith("SUPPORT_")
-            prev_support = previous is not None and Path(previous).name.startswith("SUPPORT_")
-            if previous is None or (prefer_support and not prev_support):
+            # Exact ChanA/ChanB win over SUPPORT_* in a mixed DATA tree.
+            rank = 0 if Path(folder).name in ("ChanA", "ChanB") else 1
+            prev_rank = (
+                0 if previous is not None and Path(previous).name in ("ChanA", "ChanB") else 1
+            )
+            if previous is None or rank < prev_rank:
                 pair[letter] = folder
 
     if not groups:
@@ -529,10 +592,8 @@ def process_tree(root, cfg, share_shifts=True, overwrite=False, output_root=None
                 out = Path(output_root) / f"Chan{letter}"
             else:
                 out = folder / cfg.get("output_folder", "suite2p_cellreg")
-            already = (out / "offsets.npz").exists() or (
-                out.exists() and (out / "combined_registered.tif").exists()
-            )
-            if already and not overwrite:
+            already = (not overwrite) and _output_complete(out, cfg)
+            if already:
                 print(f"  skip existing {out}")
                 if share_shifts and letter == align_letter and offsets is None:
                     offsets = _offsets_from_dir(out)
@@ -550,7 +611,15 @@ def process_tree(root, cfg, share_shifts=True, overwrite=False, output_root=None
                 and offsets is not None
                 and tif is not None
             ):
-                run_independent_chanb(tif, out, offsets, cfg, overwrite=overwrite)
+                run_independent_nonalign(
+                    tif,
+                    out,
+                    offsets,
+                    cfg,
+                    letter=letter,
+                    align_letter=align_letter,
+                    overwrite=overwrite,
+                )
     print(f"\nFinished {n} stack(s).")
 
 
@@ -565,6 +634,12 @@ def main():
                         help="cell = REGISTRATION; legacy = stock-like nonrigid")
     parser.add_argument("--no-share-shifts", action="store_true",
                         help="Estimate each channel independently")
+    parser.add_argument(
+        "--align-channel",
+        choices=["A", "B"],
+        default=None,
+        help="Neuron PMT letter. Default: Experiment.xml Computer name, else A",
+    )
     parser.add_argument("--output-root", default=None,
                         help="Write ChanA/ChanB under this folder instead of beside the tiff")
     parser.add_argument("--save-stack", action="store_true",
@@ -595,6 +670,7 @@ def main():
         share_shifts=cfg["share_shifts_across_channels"],
         overwrite=args.overwrite,
         output_root=output_root,
+        align_override=args.align_channel,
     )
     return 0
 

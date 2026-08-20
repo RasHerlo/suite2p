@@ -80,21 +80,83 @@ chopped ChanB into ~4 µm blobs (3.4% FOV) while clouds are much larger.
 Expect stock Cellpose to do the same unless we train (or adopt) an astrocyte
 model.
 
-ChanA/ChanB are PMT paths. Cell type depends on prep + filter cube (Shinano
-C1: ChanA red neurons, ChanB green astro). Do not hardcode globally.
+**ChanA/ChanB are PMT paths.** Cell type depends on microscope + filter cube:
+
+| Rig | `Experiment.xml` `<Computer>` | Green / G-Flamp astro | Red / jRGECO-RCaMP neuron | `align_channel` |
+|---|---|---|---|---|
+| Shinano | `THORLABS_30_016` | ChanB | ChanA | A |
+| Musashi | `USER-PC` | ChanA | ChanB | B |
+
+Do not hardcode globally. This batch: 260510–260521 = Shinano; **260616 = Musashi**.
 
 ## When we pick this up
 
-1. Run `lab/pipeline/run_seg_eval.py` raw vs v21 vs v22 (shared cell-ops
-   `data.bin` per stack, then `temporal` vs `cyto3`). Open each `suite2p/`
-   in both GUIs. **Done 2026-08-20** (`raw_vs_v21_vs_v22_eval`).
-2. Neuron channel: suite2p temporal vs Cellpose `cyto3` on the registered
-   movie (anatomical_only=2), with F and Fneu.
-3. Astrocyte channel: do not reuse the neuron model; plan training data
-   (or an existing astrocyte Cellpose model). Stock `cyto3` on ChanB stays
-   a wrong-prior control.
-4. Keep `ops['anatomical_only']` / `lab/configs` CELLPOSE + SEG_EVAL as
-   the hook.
+1. **Locked default:** run **both** `temporal` and `cyto3` (anatomical) on
+   the same share-A `data.bin`. Intercalation stays in s2p_Trace_Curation.
+   Runner: `lab/pipeline/run_seg_locked.py`.
+2. Astrocyte temporal: `tau=1 s`, correlation window **5.61 µm** (suite2p
+   `spatial_scale=1` / 6 px at 0.935 µm/px).
+3. Astrocyte anatomical: `cyto3`, `anatomical_only=2`, soma diameter
+   **8.42 µm** (9 px at 0.935 µm/px), `flow_threshold=0.4`. Not a
+   territory model. Custom weights can still replace `pretrained_model`.
+4. Both convert from `Experiment.xml` (`fs = frameRate/averageNum`,
+   `um_per_px = LSM/@pixelSizeUM`). Do not hardcode 9 px or scale=1 on a
+   new FOV. Neurons: temporal auto-scale; anatomical cyto3 diameter auto.
+5. Sandbox bakeoff `raw_vs_v21_vs_v22_eval` remains the Level3b reference
+   (`seg_runs/` in the Level3b copy). ChanB cyto3 there used auto diameter
+   (wrong prior); the locked AC arm is the 2026-08-20 `seg_cyto3_d9` check.
+
+## Level3b ChanB tau sweep (2026-08-20)
+
+Share-A v22 movie:
+`mc_runs\260511\...\LED_x15_Level3b\seg_tau_sweep\compare.png`
+
+`spatial_scale` locked at **2** (12 px) so tau is the only knob. `high_pass`
+scaled to keep a ~100 s window. OASIS off.
+
+| tau (s) | bin frames | n ROI | coverage |
+|---|---|---|---|
+| 1 | 15 | 9 | 0.009 |
+| 3 | 44 | 0 | 0 |
+| 5 | 74 | 0 | 0 |
+| 10 | 148 | 0 | 0 |
+
+Slower bins emptied detection; they did not recover G-Flamp somata. A
+side run with auto-scale at tau=3 found 12 ROIs at **6 px** before the
+locked-scale rerun. Next knob is `spatial_scale` 1 vs 2 vs 3 at tau=1
+(and maybe threshold_scaling), not a wider tau grid. Then Cellpose.
+
+## Level3b ChanB spatial_scale sweep (2026-08-20)
+
+Same share-A movie, `tau=1`. Figure:
+`mc_runs\260511\...\LED_x15_Level3b\seg_spatial_scale_sweep\compare.png`
+
+| scale | px (~µm at 0.935) | n ROI | coverage |
+|---|---|---|---|
+| 1 | 6 (~5.6) | 359 | 0.087 |
+| 2 | 12 (~11) | 9 | 0.009 |
+| 3 | 24 (~22) | 0 | 0 |
+
+Finer scale over-segments; 24 px finds nothing. Temporal sparse detect is
+not locking onto soma-sized objects here.
+
+**Locked for future astrocyte temporal runs (2026-08-20):** `tau=1 s`,
+correlation window **5.61 µm** (`spatial_scale=1` / 6 px at the lock FOV
+0.935 µm/px) on **astrocytes**, wherever they sit.
+`TEMPORAL_BY_CELL_TYPE["astrocyte"]`. XML `pixelSizeUM` retunes the
+suite2p scale (nearest of 6/12/24/48 px). Which PMT: experiment
+`CHANNEL_CELL_TYPES` / `cell_type_by_channel` if sensors moved, else
+MICROSCOPES cube defaults (Shinano ChanB, Musashi ChanA with current
+G-Flamp/jRGECO). Neurons stay `tau=1`, `spatial_scale=0` (auto).
+Share-align follows the **neuron** PMT the same way.
+
+**Locked for astrocyte anatomical (2026-08-20):** `cyto3` on the share-A
+mean (`anatomical_only=2`), soma diameter **8.42 µm** (9 px at 0.935 µm/px),
+`flow_threshold=0.4`. Check: `mc_runs\260511\...\seg_cyto3_d9\compare.png`
+(22–38 ROIs / FOV on ChanB). `ANATOMICAL_BY_CELL_TYPE["astrocyte"]`.
+Same XML conversion. Neurons: cyto3, diameter auto, flow 1.5 until locked.
+
+Default pipeline writes **both** arms; curation intercalates them.
 
 Paper-repo: `catalog/preprocessing/TODO.md` (CellPose section),
 `catalog/roi_trace/OVERVIEW.md`.

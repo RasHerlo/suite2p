@@ -6,13 +6,19 @@
 
 experiment: example_experiment
 cell_type_by_channel:
+  # Which PMT has which cell type *for this prep*. Change this when
+  # fluorescent sensors move; temporal/Cellpose ops follow the cell type,
+  # not the Chan letter. Microscope cube defaults are only the fallback.
   ChanA: neuron
   ChanB: astrocyte
   SUPPORT_ChanA: neuron
   SUPPORT_ChanB: astrocyte
 
 acquisition:
-  fs: 10.0
+  # Overridden at run time from Experiment.xml (LSM frameRate/averageNum,
+  # pixelSizeUM). Do not hardcode fs or µm/px for a new FOV.
+  fs: null
+  um_per_px: null
   tau: 1.0
   nplanes: 1
   nchannels: 1
@@ -25,9 +31,30 @@ preprocess:
 suite2p:
   do_registration: true
   nonrigid: true
-  spatial_scale: 0
+  spatial_scale: 0   # neuron default (auto). Astrocytes use temporal.astrocyte below.
   neucoeff: 0.7
   anatomical_only: 0   # 0 = functional detection; 1–4 = Cellpose on mean/max img
+
+temporal:
+  # Follows cell type, not ChanA/B. Physical units; converted via XML µm/px.
+  # Lock FOV was 0.935 µm/px (Shinano LED_x15 Level3b).
+  neuron:
+    tau: 1.0          # seconds
+    spatscale_um: null  # auto spatial_scale
+  astrocyte:
+    tau: 1.0
+    spatscale_um: 5.61  # 6 px at 0.935 µm/px → nearest suite2p scale
+
+anatomical:
+  # Cellpose on mean (anatomical_only=2). Same XML conversion.
+  neuron:
+    model: cyto3
+    diameter_um: null   # auto
+    flow_threshold: 1.5
+  astrocyte:
+    model: cyto3
+    diameter_um: 8.415  # 9 px at 0.935 µm/px
+    flow_threshold: 0.4
 
 registration:
   # Register the delivered movie. No FFT notch / defringe here.
@@ -37,12 +64,10 @@ registration:
   smooth_sigma: 3.0
   nonrigid: false
   share_shifts_across_channels: true
-  align_channel: A   # PMT letter used to estimate the shared trace (prep-dependent)
+  align_channel: A   # neuron PMT: Shinano=A, Musashi (USER-PC)=B
 
 cellpose:
-  diameter: 0
-  cellprob_threshold: 0.0
-  flow_threshold: 1.5
+  # Custom weights optional. Stock cyto3 + diameter_um is the locked AC arm.
   models:
     neuron: models/neuron
     astrocyte: models/astrocyte

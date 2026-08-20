@@ -27,7 +27,7 @@ Open:
     s2p_Trace_Curation   → the suite2p folder (parent of plane0)
 
 Does not apply lab ellipticity ROI filtering. Does not extract paper traces.
-ChanB + cyto3 remains a wrong-prior control until an astrocyte model exists.
+ChanB + cyto3 is the locked astrocyte anatomical arm (physical diameter from XML).
 """
 
 from __future__ import annotations
@@ -107,9 +107,16 @@ def _hardlink_or_copy(src: Path, dst: Path) -> None:
 
 
 def _ops_for(tif_path: Path, save_path0: Path, method: str, *, detect: bool) -> dict:
-    ops = apply_s2p_ops(default_ops(), tif_path=tif_path, output_dir=save_path0)
-    apply_seg_eval_ops(ops, method=method)
-    ops["fs"] = FS_HZ
+    ops = apply_s2p_ops(
+        default_ops(), tif_path=tif_path, output_dir=save_path0, start=tif_path
+    )
+    apply_seg_eval_ops(
+        ops,
+        method=method,
+        channel_letter=Path(tif_path).parent.name,
+        computer=ops.get("computer"),
+        start=tif_path,
+    )
     ops["roidetect"] = detect
     ops["tiff_list"] = [tif_path.name]
     return ops
@@ -275,8 +282,7 @@ def load_plane_view(plane: Path) -> dict | None:
 
 
 def condition_title(kind: str, method: str, letter: str, n_roi: int) -> str:
-    extra = "  (wrong prior)" if method == "cyto3" and letter == "B" else ""
-    return f"{kind} {method} Chan{letter}{extra}  n={n_roi}"
+    return f"{kind} {method} Chan{letter}  n={n_roi}"
 
 
 def draw_condition_row(fig, gs, row: int, col0: int, view: dict, label: str):

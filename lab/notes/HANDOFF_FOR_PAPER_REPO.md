@@ -11,12 +11,33 @@ Last updated: 2026-08-20.
 
 **Status (read this first):**
 
-- Full-stack **v2.2** tiffs exist at
+- **Default production pipeline (2026-08-20):**
+  `python lab/pipeline/run_collected.py --gui` (or `--root PATH`).
+  Defringe already writes `Chan{A|B}_stk_defringed_v22.tif` into
+  `<session>/DATA/ChanA` and `DATA/ChanB`. This runner registers those
+  stacks in place and leaves temporal + anatomical suite2p folders
+  **in the same Chan folders**:
+
+  ```
+  DATA/ChanA|B/
+    Chan*_stk_defringed_v22.tif   # defringe; do not overwrite
+    suite2p_temp/                 # temporal ROIs + F/Fneu
+    suite2p_anat/                 # anatomical (cyto3) ROIs + F/Fneu
+  ```
+
+  Share-align on the **neuron PMT** (Shinano=`A`, Musashi=`B`). Independent
+  estimate of the other PMT is a fringe **guide** only
+  (`independent_meanImg.png`). `fs` / µm/px from Experiment.xml. OASIS off.
+  Intercalation and `trc_curation.pkl` belong in
+  [s2p_Trace_Curation](https://github.com/RasHerlo/s2p_Trace_Curation)
+  (pickle in the same Chan folder). Sandbox `mc_runs/` / `seg_runs/` are
+  bakeoffs, not the production tree.
+- Full-stack **v2.2** tiffs also exist at
   `...\Level3b copy\inputs\defringed_v22\` (pack_D seeded-500). **v2.1**
   kept at `inputs/defringed_v21/`. Seg+extraction bakeoff includes both.
-- Default MC: **share-A** for traces; independent ChanB mean kept as an ROI
-  fringe guide; warn if independent B shifts disagree with A (Pearson < 0.7
-  or median |Δ| > 2 px). See `lab/pipeline/fringe_robust_register.py`.
+- MC recipe: share the **neuron PMT**; independent non-align mean is the
+  ROI fringe guide; warn if those shifts disagree. See
+  `lab/pipeline/fringe_robust_register.py`.
 - Honest unreg vs reg (same movie mean; alias bug fixed). **All three**
   cell-ops runs sharpen cells **and** re-freeze the PMT family (`both_up`):
 
@@ -37,7 +58,7 @@ Last updated: 2026-08-20.
 |---|---|
 | GitHub | https://github.com/RasHerlo/suite2p |
 | Interpreter | `C:\Users\rasmu\anaconda3\envs\suite2p\python.exe` (not WindowsApps `python`) |
-| Deeper notes | [CURRENT.md](CURRENT.md), [motion_correction.md](motion_correction.md), [segmentation.md](segmentation.md), [HANDOFF_FOR_SUPPORT.md](HANDOFF_FOR_SUPPORT.md) |
+| Deeper notes | [CURRENT.md](CURRENT.md), [motion_correction.md](motion_correction.md), [segmentation.md](segmentation.md), [HANDOFF_FOR_SUPPORT.md](HANDOFF_FOR_SUPPORT.md), [HANDOFF_FOR_S2P_TRACE_CURATION.md](HANDOFF_FOR_S2P_TRACE_CURATION.md) |
 
 If this path is missing on GitHub `main`, use the **local clone** — lab notes
 and MC scripts may be ahead of the last push.
@@ -49,7 +70,7 @@ and MC scripts may be ahead of the last push.
 | Repo | Job | Must not do |
 |---|---|---|
 | [derippling_PMT_noise](https://github.com/RasHerlo/derippling_PMT_noise) | Remove PMT/scan fringes (leading: **v2.1** raw adaptive). Optional SUPPORT is downstream of that repo’s README, not here. | Motion correction, ROI detection, paper traces |
-| **This repo (suite2p)** | Motion correction, then segmentation / traces **on a delivered stack** | FFT-notch / v2.1 defringe; `1Preg`; writing into the original session `DATA/` tree |
+| **This repo (suite2p)** | Motion correction, then segmentation / traces **on a delivered stack** | FFT-notch / v2.1 defringe; `1Preg`; overwriting `Chan*_stk_defringed_v22.tif` |
 | [figure_for_cAMP_Neu_paper](https://github.com/RasHerlo/figure_for_cAMP_Neu_paper) | Catalog, figures, decide where the pipeline still fails | Copy pipeline code; treat fringe-locked `iscell` as biology |
 
 Sandbox (shared data, not git):
@@ -62,7 +83,8 @@ Layout and promotion rules: `README_SANDBOX.md` in that folder.
 |---|---|
 | Defringe trials | `defringe_runs/` (underscore) |
 | SUPPORT trials | `support_runs/` |
-| Motion correction (this repo) | `mc_runs/` |
+| Motion correction bakeoff (this repo) | `mc_runs/` |
+| Collected MC + seg (this repo) | session `DATA/ChanA|B/suite2p_temp` and `suite2p_anat` |
 | Segmentation peeks (this repo) | `seg_runs/` |
 | Joint pipelines | `combo_runs/` |
 
@@ -79,7 +101,7 @@ v2.1 full stacks **are promoted** to `inputs/defringed_v21/`.
 | Paper diagnosis FOV | `acq-260511-led-level1` (same animal/day family, **different** LED level / FOV) |
 | `fs` | ThorImage `frameRate/averageNum` = 29.595/2 = **14.80 Hz** (not hardcoded 10) |
 | Size | raw 5400×512×512 uint16; SUPPORT `denoised_cut` is **5340** frames (30+30 cut) |
-| Channels | PMT paths, not cell types. Shinano + C1: **ChanA = red neurons (jRGECO1a)**, **ChanB = green astro (G-Flamp1)** |
+| Channels | PMT paths, not cell types. **Shinano** (`THORLABS_30_016`): ChanA = red neurons, ChanB = green astro. **Musashi** (`USER-PC`): cubes inverted — ChanA = green astro (G-Flamp1), ChanB = red neurons (jRGECO/RCaMP). Share shifts from the *neuron* PMT (`align_channel` A vs B). |
 
 Never share shift traces between raw/defringed (5400) and SUPPORT (5340).
 
@@ -183,8 +205,10 @@ Do not promote any of these for paper traces.
 5. **Do not FFT-notch inside this repo.** Defringe is
    [derippling_PMT_noise](https://github.com/RasHerlo/derippling_PMT_noise)
    (v2.1: `reference/gpt/pmt_fringe_raw_adaptive_v21.py`).
-6. **Do not write MC outputs into the original `LED_x15_Level3b\DATA` tree.**
-   Only the sandbox `mc_runs/`.
+6. **Do not overwrite `Chan*_stk_defringed_v22.tif`.** The default collected
+   pipeline *does* write `suite2p_temp` / `suite2p_anat` (and MC QC) into
+   session `DATA/ChanA|B`. Sandbox bakeoffs still live under `mc_runs/` /
+   `seg_runs/` — do not mix those trees with the collected contract.
 7. **Do not share shifts across unequal lengths** (SUPPORT cut vs full stack).
 8. **Do not use stock Cellpose on ChanB astrocytes.** Soma prior; clouds get
    chopped into ~4 µm blobs (seen on level1). Neuron vs astrocyte models must
@@ -270,19 +294,26 @@ Full-stack v2.1 delivered. Further knobs live in that repo.
 
 ### Paper / catalog repo (what to record, not implement)
 
-- Pin `pipeline_id` + **this** suite2p commit + defringe v2.1 commit + `fs` +
+- Pin `pipeline_id` (`pipe-collected-s2p`) + **this** suite2p commit +
+  defringe v2.2 (or v2.1) commit + `fs` +
   `order: defringe_first` on `catalog/preprocessing.yaml` when a dataset is
-  attached. Sandbox Level3b is **not** the paper FOV (`led_x15_level1`).
+  attached. Expected outputs:
+  `<session>/DATA/ChanA|B/suite2p_temp` and `suite2p_anat`.
+  Sandbox Level3b is **not** the paper FOV (`led_x15_level1`).
 - FOV stills: assembled `stk_avg` until registered-mean QC is signed off.
 - ROI/trace tools stay downstream. See `catalog/preprocessing/TODO.md` and
   `catalog/roi_trace/OVERVIEW.md`.
 
 ### Next in this repo (not paper traces)
 
-1. Inspect `seg_runs/raw_vs_v21_vs_v22_eval/compare.png` and open the
-   `plane0` folders in suite2p GUI and
-   [s2p_Trace_Curation](https://github.com/RasHerlo/s2p_Trace_Curation).
-2. Astrocyte model / not stock `cyto3` on ChanB.
+1. **Default is already** `run_collected.py`: temporal + anatomical on the
+   same share-aligned `data.bin`, written as `DATA/ChanX/suite2p_temp` and
+   `suite2p_anat`. Physical knobs from Experiment.xml. Intercalation in
+   s2p_Trace_Curation. AC anatomical: `cyto3`, 8.42 µm (9 px at
+   0.935 µm/px), flow 0.4.
+2. Sandbox Level3b `seg_runs/raw_vs_v21_vs_v22_eval/` remains the bakeoff
+   reference (ChanB cyto3 there was auto-diameter). Locked check:
+   `mc_runs\260511\...\seg_cyto3_d9\compare.png`.
 
 ### Explicitly not next (raw)
 
@@ -303,5 +334,6 @@ Do not spend more raw-MC cycles expecting paper-grade ROIs. Do not put
    `seg_runs/cellpose_full/compare.png`.
 5. `lab/notes/motion_correction.md` for ops rationale.
 
-Do not start a new MC or segment run from the paper repo. Ask this repo if
-the next named test is needed.
+Do not start a new MC or segment run from the paper repo. Production
+sessions go through `run_collected.py` in this clone; ask here if a named
+bakeoff is needed.

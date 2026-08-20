@@ -4,12 +4,16 @@ Last updated: 2026-08-20
 
 **Paper / catalog agent:** [HANDOFF_FOR_PAPER_REPO.md](HANDOFF_FOR_PAPER_REPO.md)
 (not this scratchpad). SUPPORT agent: [HANDOFF_FOR_SUPPORT.md](HANDOFF_FOR_SUPPORT.md).
+Trace-curation agent: [HANDOFF_FOR_S2P_TRACE_CURATION.md](HANDOFF_FOR_S2P_TRACE_CURATION.md).
+Assemble / stk agent: [HANDOFF_FOR_THORLABS_DATA_OVERVIEW.md](HANDOFF_FOR_THORLABS_DATA_OVERVIEW.md).
 
-**Active:** default MC is **share-A for processing**, plus an independent
-ChanB mean as an ROI fringe guide and a warning if the two shift traces
-disagree (`fringe_robust_register.py`). Seg bakeoff on disk is still the
-older independent-B `plane0`s unless `--overwrite`. ChanB still needs an
-astrocyte prior. Do not extract paper traces yet.
+**Active:** Collected MC + locked temporal/anatomical pipeline:
+`python lab/pipeline/run_collected.py --gui`. Cell types follow
+astrocytes/neurons; XML sets fs and µm/px. Outputs stay next to the
+defringe v22 stacks: `DATA/ChanA|B/suite2p_temp` and `suite2p_anat`.
+Do not overwrite those TIFFs. Intercalation / pickle is
+s2p_Trace_Curation (pickle in the same Chan folder). Do not extract
+paper traces. Sandbox bakeoffs still live under `mc_runs/` / `seg_runs/`.
 
 **Do not:** re-implement defringe here; turn on `1Preg`; extract Fig 1 traces
 yet; use lowpass registered means as Fig 1 stills (use `stk_avg`).
@@ -59,9 +63,8 @@ A vs B mask overlap 0.05–0.08 (not a shared stripe field). Counts barely chang
 
 **Next:** inspect `seg_runs/raw_vs_v21_vs_v22_eval/compare.png` and open
 `plane0` folders in this repo’s suite2p GUI and in s2p_Trace_Curation.
-Do not extract paper traces yet. Next ChanB step is an astrocyte model
-(stock `cyto3` is the wrong prior). The 2026-08-18 `cellpose_full` peek
-is not the `plane0` deliverable.
+Do not extract paper traces yet. Locked ChanB anatomical is stock
+`cyto3` at 8.42 µm (9 px at 0.935 µm/px), not a trained territory model.
 
 **Scope:** this repo does **not** defringe. Stacks arrive already processed
 upstream if needed ([derippling_PMT_noise](https://github.com/RasHerlo/derippling_PMT_noise)).
