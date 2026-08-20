@@ -14,6 +14,6 @@ Live scratchpad: [CURRENT.md](CURRENT.md). Active topics:
 | Note | Status |
 |---|---|
 | [motion_correction.md](motion_correction.md) | in progress — cell vs fringe scores default; raw/v21/share-A all `both_up` |
-| [segmentation.md](segmentation.md) | raw vs v21 plane0 bakeoff done (2026-08-19) |
+| [segmentation.md](segmentation.md) | raw vs v21 vs v22 plane0 bakeoff done (2026-08-20) |
 
 Do not put MouseLand suite2p internals here. Code lives under `lab/`; these files are the why.

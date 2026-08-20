@@ -1,6 +1,6 @@
 # Motion correction vs PMT fringes
 
-Last updated: 2026-08-19 (late)
+Last updated: 2026-08-20
 
 ## Default scores (cell vs fringe family)
 
@@ -102,8 +102,24 @@ so phasecorr attends to soma-scale structure. That is **not** a defringe
 product; the kept movie is still the delivered stack.
 
 Optional: compute the trace on the neuron-like PMT and apply to both
-channels (`share_shifts_across_channels`). ChanA/B are PMT paths, not cell
-types — set the align channel per experiment.
+channels (`share_shifts_across_channels`, default **on**). ChanA/B are PMT
+paths, not cell types — set the align channel per experiment.
+
+**Default pair handling (2026-08-20):**
+
+1. Estimate **ChanA** (align / neuron PMT). That movie is processed.
+2. **Apply those shifts to ChanB** (share-A). That is the ChanB movie for
+   detection, extraction, and traces — one tissue layer, not fooled by
+   leftover edge fringes on B.
+3. **Also estimate ChanB independently.** Do not use that movie for traces.
+   Save `ChanB/independent_meanImg.png` (and
+   `roi_guide_independent_vs_shareA.png`) so curation can see where residual
+   fringes freeze. Segmented pieces there are less trustworthy.
+4. If independent B shifts **disagree** with A (Pearson x or y < 0.7, or
+   median |Δ| > 2 px), print a warning and write
+   `ChanB/SHIFT_AGREEMENT_WARNING.txt`. Processing still uses share-A.
+
+`--no-share-shifts` remains a bakeoff-only opt-out.
 
 **Do not use `1Preg` / `spatial_hp_reg` here.** That high-pass keeps residual
 fringe-scale texture.

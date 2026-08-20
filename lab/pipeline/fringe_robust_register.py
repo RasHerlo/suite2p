@@ -9,6 +9,12 @@ than residual high-frequency texture.
 Does not enable 1Preg. Writes suite2p_cellreg/ so legacy suite2p files/
 is left alone.
 
+Default (share-A): estimate the align channel (ChanA), apply those shifts
+to ChanB so both PMTs stay on the same tissue layer, and still estimate
+ChanB independently. Independent ChanB is *not* used for traces; its
+meanImg is kept as an ROI-curation guide (residual fringes). A warning is
+raised if independent B shifts disagree with the shared A traces.
+
 Usage
 -----
     python lab/pipeline/fringe_robust_register.py <parent_folder>
@@ -21,6 +27,7 @@ See lab/notes/motion_correction.md.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from copy import deepcopy
 from pathlib import Path
@@ -200,6 +207,8 @@ def estimate_and_apply(mov, channel_letter, output_dir, cfg, offsets=None):
     ops_save["meanImg"] = mean_img
     ops_save["align_channel"] = channel_letter
     ops_save["align_filter"] = cfg.get("align_filter")
+    ops_save["yrange"] = [0, ly]
+    ops_save["xrange"] = [0, lx]
     np.save(output_dir / "mean_unregistered.npy", orig_mean.astype(np.float32))
     np.save(output_dir / "ops.npy", ops_save)
     savez = dict(yoff=yoff, xoff=xoff, cmax=cmax, good=good)
@@ -207,6 +216,8 @@ def estimate_and_apply(mov, channel_letter, output_dir, cfg, offsets=None):
         savez["yoff1"] = yoff1
         savez["xoff1"] = xoff1
     np.savez(output_dir / "offsets.npz", **savez)
+    if cfg.get("write_data_bin"):
+        _write_plane0_bin(output_dir, registered, ops_save)
     _save_diagnostics(output_dir, mov, registered, yoff, xoff, cmax, good, mean_img)
     return {
         "yoff": yoff,
@@ -263,12 +274,160 @@ def _save_diagnostics(output_dir, original, registered, yoff, xoff, cmax, good, 
     plt.close()
 
 
+def _write_plane0_bin(output_dir, registered, ops_save):
+    """GUI-openable registered movie next to MC products (optional, large)."""
+    plane = Path(output_dir) / "suite2p" / "plane0"
+    plane.mkdir(parents=True, exist_ok=True)
+    mov = np.clip(np.rint(np.asarray(registered)), -32768, 32767).astype(np.int16)
+    bin_path = plane / "data.bin"
+    mov.tofile(bin_path)
+    ops = deepcopy(ops_save)
+    ops["do_registration"] = 0
+    ops["reg_file"] = str(bin_path)
+    np.save(plane / "ops.npy", ops)
+    print(f"    wrote {bin_path}")
+
+
+def _pearson(a, b):
+    a = np.asarray(a, dtype=np.float64).ravel()
+    b = np.asarray(b, dtype=np.float64).ravel()
+    n = min(a.size, b.size)
+    if n < 3:
+        return float("nan")
+    a, b = a[:n], b[:n]
+    if np.std(a) == 0 or np.std(b) == 0:
+        return float("nan")
+    return float(np.corrcoef(a, b)[0, 1])
+
+
+def _save_gray_png(path, img):
+    img = np.asarray(img, dtype=np.float32)
+    lo, hi = np.percentile(img, (1, 99))
+    if not np.isfinite(lo) or lo == hi:
+        lo, hi = float(np.nanmin(img)), float(np.nanmax(img) + 1e-6)
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.imshow(img, cmap="gray", vmin=lo, vmax=hi)
+    ax.set_axis_off()
+    fig.savefig(path, dpi=140, bbox_inches="tight", pad_inches=0)
+    plt.close(fig)
+
+
+def shift_agreement(share, independent, cfg=None):
+    """Compare share-A (align-channel) traces to independently estimated B."""
+    cfg = cfg or {}
+    dy = np.abs(
+        np.asarray(share["yoff"], dtype=np.float64) - np.asarray(independent["yoff"], dtype=np.float64)
+    )
+    dx = np.abs(
+        np.asarray(share["xoff"], dtype=np.float64) - np.asarray(independent["xoff"], dtype=np.float64)
+    )
+    r_y = _pearson(share["yoff"], independent["yoff"])
+    r_x = _pearson(share["xoff"], independent["xoff"])
+    med_dy = float(np.median(dy)) if dy.size else float("nan")
+    med_dx = float(np.median(dx)) if dx.size else float("nan")
+    r_min = float(cfg.get("share_shift_warn_pearson", 0.7))
+    px_max = float(cfg.get("share_shift_warn_median_px", 2.0))
+    bad_r = (np.isfinite(r_y) and r_y < r_min) or (np.isfinite(r_x) and r_x < r_min)
+    bad_px = (np.isfinite(med_dy) and med_dy > px_max) or (np.isfinite(med_dx) and med_dx > px_max)
+    warned = bool(bad_r or bad_px)
+    return {
+        "processing_B": "share_A",
+        "pearson_xoff": r_x,
+        "pearson_yoff": r_y,
+        "median_abs_dx": med_dx,
+        "median_abs_dy": med_dy,
+        "max_abs_dx": float(np.max(dx)) if dx.size else float("nan"),
+        "max_abs_dy": float(np.max(dy)) if dy.size else float("nan"),
+        "warn_pearson_below": r_min,
+        "warn_median_px_above": px_max,
+        "warned": warned,
+    }
+
+
+def _emit_shift_warning(stats, chan_b_dir):
+    lines = [
+        "WARNING: independent ChanB shifts disagree with share-A (ChanA) traces.",
+        f"  xoff r={stats['pearson_xoff']:.3f}  yoff r={stats['pearson_yoff']:.3f}"
+        f"  median |dx|={stats['median_abs_dx']:.2f} px  median |dy|={stats['median_abs_dy']:.2f} px",
+        "  Processing still uses share-A so both channels stay on the same tissue layer.",
+        "  Independent ChanB likely locked to residual fringes; treat ROIs there as less trustworthy.",
+        f"  Guide image: {chan_b_dir / 'independent_meanImg.png'}",
+    ]
+    text = "\n".join(lines)
+    print(text)
+    (chan_b_dir / "SHIFT_AGREEMENT_WARNING.txt").write_text(text + "\n", encoding="utf-8")
+
+
+def _save_roi_guide(chan_b_dir, share_mean, indep_mean):
+    """Two-panel PNG: processing (share-A) mean vs independent B mean."""
+    fig, axes = plt.subplots(1, 2, figsize=(11, 5.5))
+    for ax, img, title in (
+        (axes[0], share_mean, "ChanB share-A mean (processing)"),
+        (axes[1], indep_mean, "ChanB independent mean (fringe guide)"),
+    ):
+        lo, hi = np.percentile(img, (1, 99))
+        ax.imshow(img, cmap="gray", vmin=lo, vmax=hi)
+        ax.set_title(title, fontsize=10)
+        ax.axis("off")
+    fig.tight_layout()
+    out = Path(chan_b_dir) / "roi_guide_independent_vs_shareA.png"
+    fig.savefig(out, dpi=130)
+    plt.close(fig)
+    return out
+
+
+def run_independent_chanb(tif_path, chan_b_dir, share_offsets, cfg, overwrite=False):
+    """Estimate ChanB on its own; keep meanImg as an ROI guide, not the movie."""
+    chan_b_dir = Path(chan_b_dir)
+    indep_dir = chan_b_dir / "independent_mc"
+    already = (indep_dir / "offsets.npz").exists()
+    cfg_ind = deepcopy(cfg)
+    cfg_ind["write_registered_tif"] = False
+    cfg_ind["write_data_bin"] = False
+    if already and not overwrite:
+        print(f"  reuse independent ChanB MC {indep_dir}")
+        z = np.load(indep_dir / "offsets.npz")
+        indep = {k: z[k] for k in ("yoff", "xoff", "cmax", "good") if k in z.files}
+        ops = np.load(indep_dir / "ops.npy", allow_pickle=True).item()
+        indep["mean_img"] = ops["meanImg"]
+    else:
+        print("    independent ChanB estimate (guide only; not used for traces)")
+        indep = process_tiff(
+            tif_path,
+            output_dir=indep_dir,
+            channel_letter="B",
+            cfg=cfg_ind,
+            offsets=None,
+        )
+    share_ops = np.load(chan_b_dir / "ops.npy", allow_pickle=True).item()
+    share_mean = np.asarray(share_ops["meanImg"])
+    indep_mean = np.asarray(indep["mean_img"])
+    np.save(chan_b_dir / "independent_meanImg.npy", indep_mean.astype(np.float32))
+    _save_gray_png(chan_b_dir / "independent_meanImg.png", indep_mean)
+    _save_roi_guide(chan_b_dir, share_mean, indep_mean)
+    stats = shift_agreement(share_offsets, indep, cfg)
+    warn_path = chan_b_dir / "SHIFT_AGREEMENT_WARNING.txt"
+    if stats["warned"]:
+        _emit_shift_warning(stats, chan_b_dir)
+    elif warn_path.exists():
+        warn_path.unlink()
+    (chan_b_dir / "shift_agreement.json").write_text(json.dumps(stats, indent=2), encoding="utf-8")
+    print(
+        "    shift agreement vs share-A: "
+        f"x r={stats['pearson_xoff']:.3f}  y r={stats['pearson_yoff']:.3f}  "
+        f"median |d| x/y={stats['median_abs_dx']:.2f}/{stats['median_abs_dy']:.2f} px"
+        + ("  WARN" if stats["warned"] else "")
+    )
+    return stats
+
+
 def find_input_tiff(folder, cfg, letter=None):
     folder = Path(folder)
     letter = letter or channel_letter_from_path(folder)
     names = []
     if letter == "A":
         names.extend([
+            "ChanA_stk_defringed_v22.tif",
             "ChanA_stk_defringed_v21.tif",
             "ChanA_stk.tif",
             "ChanA_stk_defringed.tif",
@@ -276,18 +435,29 @@ def find_input_tiff(folder, cfg, letter=None):
         ])
     elif letter == "B":
         names.extend([
+            "ChanB_stk_defringed_v22.tif",
             "ChanB_stk_defringed_v21.tif",
             "ChanB_stk.tif",
             "ChanB_stk_defringed.tif",
             "denoised_cut.tif",
         ])
-    else:
-        names.extend(cfg.get("input_tiff_names", ()))
+    for extra in cfg.get("input_tiff_names") or ():
+        if extra not in names:
+            names.append(extra)
     for name in names:
         path = folder / name
         if path.exists():
             return path
     return None
+
+
+def _offsets_from_dir(out):
+    z = np.load(Path(out) / "offsets.npz")
+    d = {k: z[k] for k in ("yoff", "xoff", "cmax", "good") if k in z.files}
+    if "yoff1" in z.files:
+        d["yoff1"] = z["yoff1"]
+        d["xoff1"] = z["xoff1"]
+    return d
 
 
 def process_tiff(tif_path, output_dir=None, channel_letter=None, cfg=None, offsets=None):
@@ -300,14 +470,14 @@ def process_tiff(tif_path, output_dir=None, channel_letter=None, cfg=None, offse
     return estimate_and_apply(mov, channel_letter, output_dir, cfg, offsets=offsets)
 
 
-def _support_folders(root):
+def _support_folders(root, cfg=None):
     root = Path(root)
     found = {"A": [], "B": []}
     for folder in root.rglob("*"):
         if not folder.is_dir():
             continue
         letter = channel_letter_from_path(folder)
-        if letter in found and find_input_tiff(folder, REGISTRATION, letter=letter):
+        if letter in found and find_input_tiff(folder, cfg or REGISTRATION, letter=letter):
             found[letter].append(folder)
     return found
 
@@ -321,7 +491,7 @@ def _pair_key(folder):
 
 
 def process_tree(root, cfg, share_shifts=True, overwrite=False, output_root=None):
-    found = _support_folders(root)
+    found = _support_folders(root, cfg)
     groups = {}
     for letter, folders in found.items():
         for folder in folders:
@@ -347,7 +517,6 @@ def process_tree(root, cfg, share_shifts=True, overwrite=False, output_root=None
     for key, pair in sorted(groups.items()):
         print(f"\n=== {key} ===")
         offsets = None
-        order = []
         if share_shifts and align_letter in pair:
             order = [align_letter] + [L for L in pair if L != align_letter]
         else:
@@ -366,14 +535,22 @@ def process_tree(root, cfg, share_shifts=True, overwrite=False, output_root=None
             if already and not overwrite:
                 print(f"  skip existing {out}")
                 if share_shifts and letter == align_letter and offsets is None:
-                    z = np.load(out / "offsets.npz")
-                    offsets = {k: z[k] for k in ("yoff", "xoff", "cmax", "good")}
-                continue
-            apply = offsets if (share_shifts and letter != align_letter) else None
-            result = process_tiff(tif, output_dir=out, channel_letter=letter, cfg=cfg, offsets=apply)
-            if share_shifts and letter == align_letter:
-                offsets = result
-            n += 1
+                    offsets = _offsets_from_dir(out)
+            else:
+                apply = offsets if (share_shifts and letter != align_letter) else None
+                result = process_tiff(
+                    tif, output_dir=out, channel_letter=letter, cfg=cfg, offsets=apply
+                )
+                if share_shifts and letter == align_letter:
+                    offsets = result
+                n += 1
+            if (
+                share_shifts
+                and letter != align_letter
+                and offsets is not None
+                and tif is not None
+            ):
+                run_independent_chanb(tif, out, offsets, cfg, overwrite=overwrite)
     print(f"\nFinished {n} stack(s).")
 
 

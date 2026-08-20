@@ -7,16 +7,16 @@
 **This file is the entry point.** Read it before `CURRENT.md` or the bakeoff
 figures. Do not edit MouseLand `suite2p/` or re-implement defringe here.
 
-Last updated: 2026-08-19 (late).
+Last updated: 2026-08-20.
 
 **Status (read this first):**
 
-- Full-stack **v2.1** is promoted:
-  `F:\bPACNewData2026\PreProcessing Optimization\Level3b copy\inputs\defringed_v21\`
-- Default MC scores are now **cell-band power** vs **PMT-family fringe
-  power** (not the old `|ky|>0.05` half-plane). Code:
-  `lab/pipeline/mc_fft_metrics.py`. SUPPORT-facing copy:
-  [HANDOFF_FOR_SUPPORT.md](HANDOFF_FOR_SUPPORT.md).
+- Full-stack **v2.2** tiffs exist at
+  `...\Level3b copy\inputs\defringed_v22\` (pack_D seeded-500). **v2.1**
+  kept at `inputs/defringed_v21/`. Seg+extraction bakeoff includes both.
+- Default MC: **share-A** for traces; independent ChanB mean kept as an ROI
+  fringe guide; warn if independent B shifts disagree with A (Pearson < 0.7
+  or median |Δ| > 2 px). See `lab/pipeline/fringe_robust_register.py`.
 - Honest unreg vs reg (same movie mean; alias bug fixed). **All three**
   cell-ops runs sharpen cells **and** re-freeze the PMT family (`both_up`):
 
@@ -244,10 +244,18 @@ Promoted: `inputs/defringed_v21/ChanA|B/*_stk_defringed_v21.tif` (5400 frames).
 - Retract the earlier “ChanB ridge pass” (that compared a once-shifted mean
   to a twice-shifted mean, and used the too-wide `|ky|>0.05` cut).
 
-**Seg+extraction (2026-08-19)** `seg_runs/raw_vs_v21_eval/`:
-raw vs v21, cell-ops MC, temporal + cyto3, F/Fneu, no OASIS.
-n ROI temporal A 229→109; cyto3 A 502→469; temporal B 4/6; cyto3 B 28→14.
-Open `seg_runs/<kind>_cell_<method>/ChanA|B/suite2p/`.
+**Seg+extraction (2026-08-20)** `seg_runs/raw_vs_v21_vs_v22_eval/`:
+raw vs v21 vs v22, cell-ops MC, temporal + cyto3, F/Fneu, no OASIS.
+
+| | raw | v21 | v22 |
+|---|---|---|---|
+| temporal A | 229 | 109 | 113 |
+| temporal B | 4 | 6 | 6 |
+| cyto3 A | 502 | 469 | 490 |
+| cyto3 B (wrong prior) | 28 | 14 | 22 |
+
+v22 tracks v21 on temporal ChanA (still ~half of raw). Open
+`seg_runs/<kind>_cell_<method>/ChanA|B/suite2p/`.
 
 **CellPose cyto3** on unregistered means (`seg_runs/cellpose_full/`):
 raw vs v21 almost the same (ChanA 122 vs 116 ROIs). Motion smear dominates.
@@ -271,8 +279,8 @@ Full-stack v2.1 delivered. Further knobs live in that repo.
 
 ### Next in this repo (not paper traces)
 
-1. Inspect `seg_runs/raw_vs_v21_eval/compare.png` and open the `plane0`
-   folders in suite2p GUI and
+1. Inspect `seg_runs/raw_vs_v21_vs_v22_eval/compare.png` and open the
+   `plane0` folders in suite2p GUI and
    [s2p_Trace_Curation](https://github.com/RasHerlo/s2p_Trace_Curation).
 2. Astrocyte model / not stock `cyto3` on ChanB.
 
@@ -290,7 +298,9 @@ Do not spend more raw-MC cycles expecting paper-grade ROIs. Do not put
 3. MC: `mc_runs/raw_cell/compare_AB.png`, `mc_runs/v21_cell/compare_AB.png`,
    `mc_runs/v21_cell_shareA/compare_AB.png` (+ `.json`; cell/fringe ratios).
    Lowpass is a negative example: `mc_runs/raw_cell_lowpass/compare_AB.png`.
-4. CellPose: `seg_runs/cellpose_full/compare.png` + `metrics.json`.
+4. Seg: `seg_runs/raw_vs_v21_vs_v22_eval/compare.png` + `metrics.json`.
+   Older two-way: `seg_runs/raw_vs_v21_eval/`. Unregistered-mean peek:
+   `seg_runs/cellpose_full/compare.png`.
 5. `lab/notes/motion_correction.md` for ops rationale.
 
 Do not start a new MC or segment run from the paper repo. Ask this repo if

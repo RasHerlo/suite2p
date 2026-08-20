@@ -44,6 +44,9 @@ ROI_SELECTION = {
 # Incoming stacks may already be defringed; this repo does not defringe.
 # Do not turn 1Preg on: spatial_hp_reg keeps ~10 px residual fringes.
 # ChanA/B are PMT paths; align_channel is a default for Shinano+C1 (red neurons).
+# Default: estimate align_channel, apply those shifts to the other PMT (share-A).
+# Also estimate ChanB independently: keep that meanImg as an ROI-curation
+# guide (residual fringes) and warn if independent B shifts disagree with A.
 REGISTRATION = {
     "output_folder": "suite2p_cellreg",
     "align_filter": "none",  # none | lowpass (lowpass = phasecorr weighting only)
@@ -56,13 +59,18 @@ REGISTRATION = {
     "corrxy_frac": 0.4,
     "share_shifts_across_channels": True,
     "align_channel": "A",
+    "share_shift_warn_pearson": 0.7,
+    "share_shift_warn_median_px": 2.0,
     "write_registered_tif": True,
+    "write_data_bin": False,
     "input_tiff_names": (
         "denoised_cut.tif",
         "ChanA_stk.tif",
         "ChanB_stk.tif",
         "ChanA_stk_defringed_v21.tif",
         "ChanB_stk_defringed_v21.tif",
+        "ChanA_stk_defringed_v22.tif",
+        "ChanB_stk_defringed_v22.tif",
         "ChanA_stk_defringed.tif",
         "ChanB_stk_defringed.tif",
     ),

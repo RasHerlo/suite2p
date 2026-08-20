@@ -6,15 +6,21 @@ Each arm runs ROI detection and extracts F and Fneu. OASIS is off
 suite2p GUI loader accepts the folder.
 
     python lab/pipeline/run_seg_eval.py
-    python lab/pipeline/run_seg_eval.py --kinds raw,v21 --methods temporal,cyto3
+    python lab/pipeline/run_seg_eval.py --kinds raw,v21,v22 --methods temporal,cyto3
     python lab/pipeline/run_seg_eval.py --overwrite
+
+New runs register with **share-A** (ChanA shifts applied to ChanB). Independent
+ChanB is still estimated; its mean is saved as an ROI fringe guide under
+`seg_runs/_bin/<kind>_cell/ChanB/independent_meanImg.png`. Existing
+`plane0` folders from the independent-B bakeoff are reused unless
+`--overwrite`.
 
 Layout (sandbox):
 
     seg_runs/<kind>_cell_<method>/ChanA|B/suite2p/plane0/
-    seg_runs/raw_vs_v21_eval/compare.png
+    seg_runs/raw_vs_v21_vs_v22_eval/compare.png
         rows: method × channel
-        cols: raw mean | raw ROIs | raw F raster | v21 mean | v21 ROIs | v21 F raster
+        cols: per kind: mean | ROIs | F raster
 
 Open:
     suite2p GUI          → plane0/stat.npy
@@ -30,6 +36,7 @@ import json
 import os
 import shutil
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -44,17 +51,19 @@ from suite2p import default_ops
 from suite2p.run_s2p import run_s2p
 
 from lab.configs.defaults import (
+    REGISTRATION,
     SEG_EVAL,
     apply_s2p_ops,
     apply_seg_eval_ops,
 )
+from lab.pipeline.fringe_robust_register import process_tree
 
 SANDBOX = (
     Path(r"F:\bPACNewData2026") / "PreProcessing Optimization" / "Level3b copy"
 )
 OUT = SANDBOX / "seg_runs"
 FS_HZ = 14.80  # Experiment.xml frameRate/averageNum
-KINDS = ("raw", "v21")
+KINDS = ("raw", "v21", "v22")
 TIFFS = {
     "raw": {
         "A": SANDBOX / "inputs" / "raw" / "ChanA" / "ChanA_stk.tif",
@@ -63,6 +72,10 @@ TIFFS = {
     "v21": {
         "A": SANDBOX / "inputs" / "defringed_v21" / "ChanA" / "ChanA_stk_defringed_v21.tif",
         "B": SANDBOX / "inputs" / "defringed_v21" / "ChanB" / "ChanB_stk_defringed_v21.tif",
+    },
+    "v22": {
+        "A": SANDBOX / "inputs" / "defringed_v22" / "ChanA" / "ChanA_stk_defringed_v22.tif",
+        "B": SANDBOX / "inputs" / "defringed_v22" / "ChanB" / "ChanB_stk_defringed_v22.tif",
     },
 }
 
@@ -112,23 +125,34 @@ def _db(tif_path: Path, save_path0: Path) -> dict:
     }
 
 
-def ensure_registered(kind: str, letter: str, overwrite: bool) -> Path:
-    """Write one registered data.bin per kind×channel (detection off)."""
-    tif = TIFFS[kind][letter]
-    save_path0 = bin_dir(kind, letter)
-    plane = plane0_dir(save_path0)
-    bin_path = plane / "data.bin"
-    if bin_path.exists() and not overwrite:
-        print(f"  reuse registered binary {bin_path}")
-        return plane
-    if overwrite and save_path0.exists():
-        shutil.rmtree(save_path0)
-    print(f"\n======== register {kind} Chan{letter} -> {save_path0} ========")
-    ops = _ops_for(tif, save_path0, "temporal", detect=False)
-    run_s2p(ops=ops, db=_db(tif, save_path0))
-    if not bin_path.exists():
-        raise FileNotFoundError(f"registration did not write {bin_path}")
-    return plane
+def kind_input_root(kind: str) -> Path:
+    return TIFFS[kind]["A"].parent.parent
+
+
+def ensure_registered_pair(kind: str, overwrite: bool) -> None:
+    """Share-A register both channels; also write independent ChanB meanImg."""
+    planes = {letter: plane0_dir(bin_dir(kind, letter)) for letter in ("A", "B")}
+    bins_ok = all((planes[L] / "data.bin").exists() for L in ("A", "B"))
+    if bins_ok and not overwrite:
+        print(f"  reuse registered binaries under {bin_dir(kind, 'A').parent}")
+        return
+    out = OUT / "_bin" / f"{kind}_cell"
+    cfg = deepcopy(REGISTRATION)
+    cfg["share_shifts_across_channels"] = True
+    cfg["write_registered_tif"] = False
+    cfg["write_data_bin"] = True
+    print(f"\n======== register {kind} share-A -> {out} ========")
+    process_tree(
+        kind_input_root(kind),
+        cfg,
+        share_shifts=True,
+        overwrite=overwrite,
+        output_root=out,
+    )
+    for letter in ("A", "B"):
+        bin_path = planes[letter] / "data.bin"
+        if not bin_path.exists():
+            raise FileNotFoundError(f"share-A register did not write {bin_path}")
 
 
 def clone_registered_plane(src_plane: Path, dest_save0: Path) -> Path:
@@ -160,8 +184,8 @@ def run_method(kind: str, letter: str, method: str, src_plane: Path, overwrite: 
     missing = [n for n in SEG_EVAL["plane0_required"] if not (plane / n).exists()]
     if missing:
         raise FileNotFoundError(f"{plane} missing {missing}")
-    print(f"  GUI: suite2p → {plane / 'stat.npy'}")
-    print(f"  GUI: s2p_Trace_Curation → {plane.parent}")
+    print(f"  GUI: suite2p -> {plane / 'stat.npy'}")
+    print(f"  GUI: s2p_Trace_Curation -> {plane.parent}")
     return plane
 
 
@@ -312,21 +336,22 @@ def write_compare_figure(kinds: list[str], methods: list[str]) -> Path | None:
         if all(f"{kind}_{method}_{letter}" in views for kind in kinds)
     ]
     if not complete_rows:
-        print("  no complete raw/v21 pairs; skip compare.png")
+        print(f"  no complete {'/'.join(kinds)} pairs; skip compare.png")
         return None
     n_kinds = len(kinds)
-    fig = plt.figure(figsize=(7.2 * n_kinds, 3.6 * len(complete_rows)), layout="constrained")
+    fig = plt.figure(figsize=(6.4 * n_kinds, 3.6 * len(complete_rows)), layout="constrained")
     width_ratios = [1, 1, 2.0] * n_kinds
     gs = GridSpec(len(complete_rows), 3 * n_kinds, figure=fig, width_ratios=width_ratios)
     for i, (method, letter) in enumerate(complete_rows):
         for k, kind in enumerate(kinds):
             label, view = views[f"{kind}_{method}_{letter}"]
             draw_condition_row(fig, gs, i, k * 3, view, label)
+    kind_label = " vs ".join(kinds)
     fig.suptitle(
-        "cell-ops MC  |  raw vs v2.1  |  registered mean  |  ROIs  |  F raster (all detected ROIs)",
+        f"cell-ops MC  |  {kind_label}  |  registered mean  |  ROIs  |  F raster (all detected ROIs)",
         fontsize=11,
     )
-    out_dir = OUT / "raw_vs_v21_eval"
+    out_dir = OUT / f"{'_vs_'.join(kinds)}_eval"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "compare.png"
     fig.savefig(out, dpi=130)
@@ -374,8 +399,9 @@ def main() -> int:
                 return 1
     OUT.mkdir(parents=True, exist_ok=True)
     for kind in kinds:
+        ensure_registered_pair(kind, overwrite)
         for letter in ("A", "B"):
-            src = ensure_registered(kind, letter, overwrite)
+            src = plane0_dir(bin_dir(kind, letter))
             for method in methods:
                 run_method(kind, letter, method, src, overwrite)
     print("\n======== compare.png ========")

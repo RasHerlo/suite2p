@@ -1,20 +1,23 @@
 # Current work
 
-Last updated: 2026-08-19 (late)
+Last updated: 2026-08-20
 
 **Paper / catalog agent:** [HANDOFF_FOR_PAPER_REPO.md](HANDOFF_FOR_PAPER_REPO.md)
 (not this scratchpad). SUPPORT agent: [HANDOFF_FOR_SUPPORT.md](HANDOFF_FOR_SUPPORT.md).
 
-**Active:** signature-mask **cell vs fringe** scores are the default MC
-metrics (`lab/pipeline/mc_fft_metrics.py`). Honest rescore of `raw_cell`
-(re-registered), `v21_cell`, `v21_cell_shareA`: all `both_up`. Seg bakeoff
-still waiting GUI/s2p_Trace_Curation look. Do not extract paper traces yet.
+**Active:** default MC is **share-A for processing**, plus an independent
+ChanB mean as an ROI fringe guide and a warning if the two shift traces
+disagree (`fringe_robust_register.py`). Seg bakeoff on disk is still the
+older independent-B `plane0`s unless `--overwrite`. ChanB still needs an
+astrocyte prior. Do not extract paper traces yet.
 
 **Do not:** re-implement defringe here; turn on `1Preg`; extract Fig 1 traces
 yet; use lowpass registered means as Fig 1 stills (use `stk_avg`).
 
-**v2.1 full stacks (2026-08-18 evening):**
-`inputs/defringed_v21/ChanA|B/*_stk_defringed_v21.tif` (5400×512×512).
+**v2.2 full stacks (2026-08-20):**
+`inputs/defringed_v22/ChanA|B/*_stk_defringed_v22.tif` (5400×512×512).
+Run folder: `defringe_runs/v22_full_seeded500/`. v2.1 kept at
+`inputs/defringed_v21/`.
 
 **MC scores (2026-08-19 late), reg/unreg power, v2.1 `signature.json`:**
 
@@ -31,17 +34,18 @@ does not pass. Legacy `|ky|>0.05` ridge still rises (A ~0.18→0.45, B
 ChanA fringe *fraction* can fall while absolute family power is still
 ~1.9× — use power ratios. Figures: `mc_runs/<run>/compare_AB.png`.
 
-**Seg+extraction bakeoff (2026-08-19), cell-ops registered movie, F/Fneu, no OASIS:**
+**Seg+extraction bakeoff (2026-08-20), cell-ops registered movie, F/Fneu, no OASIS:**
 
-| | raw n ROI | v21 n ROI |
-|---|---|---|
-| temporal A | 229 | 109 |
-| temporal B | 4 | 6 |
-| cyto3 A | 502 | 469 |
-| cyto3 B (wrong prior) | 28 | 14 |
+| | raw n ROI | v21 n ROI | v22 n ROI |
+|---|---|---|---|
+| temporal A | 229 | 109 | 113 |
+| temporal B | 4 | 6 | 6 |
+| cyto3 A | 502 | 469 | 490 |
+| cyto3 B (wrong prior) | 28 | 14 | 22 |
 
-v21 temporal ChanA ~halves ROI count vs raw. cyto3 ChanA stays dense (~500).
-Temporal ChanB still almost empty. Figure: `seg_runs/raw_vs_v21_eval/compare.png`.
+v22 ≈ v21 on temporal ChanA (still ~half of raw). cyto3 ChanA 490 sits
+between v21 and raw. Temporal ChanB still almost empty. Figure:
+`seg_runs/raw_vs_v21_vs_v22_eval/compare.png`.
 `plane0` folders: `seg_runs/<kind>_cell_<method>/ChanA|B/suite2p/`.
 
 **CellPose `cyto3` on unregistered full-stack means** (no MC; ChanB = wrong prior):
@@ -53,9 +57,11 @@ Temporal ChanB still almost empty. Figure: `seg_runs/raw_vs_v21_eval/compare.png
 
 A vs B mask overlap 0.05–0.08 (not a shared stripe field). Counts barely change: motion smear in the unregistered mean dominates CellPose. Overlay: `seg_runs/cellpose_full/compare.png`.
 
-**Next:** inspect `seg_runs/raw_vs_v21_eval/compare.png` and open `plane0`
-folders in this repo’s suite2p GUI and in s2p_Trace_Curation. Do not extract
-paper traces yet. The 2026-08-18 `cellpose_full` peek is not that deliverable.
+**Next:** inspect `seg_runs/raw_vs_v21_vs_v22_eval/compare.png` and open
+`plane0` folders in this repo’s suite2p GUI and in s2p_Trace_Curation.
+Do not extract paper traces yet. Next ChanB step is an astrocyte model
+(stock `cyto3` is the wrong prior). The 2026-08-18 `cellpose_full` peek
+is not the `plane0` deliverable.
 
 **Scope:** this repo does **not** defringe. Stacks arrive already processed
 upstream if needed ([derippling_PMT_noise](https://github.com/RasHerlo/derippling_PMT_noise)).
