@@ -44,7 +44,9 @@ from lab.configs.defaults import (
     apply_microscope_to_registration,
     apply_s2p_ops,
     apply_seg_eval_ops,
+    mapping_from_emission,
     microscope_for_path,
+    pmt_colors,
     pmt_roles,
 )
 from lab.pipeline.compare_mc_channels import compare
@@ -142,6 +144,17 @@ def mapping_from_cells(chan_a: str, chan_b: str) -> dict:
     return {"A": a, "B": b}
 
 
+def session_mapping(session: Path, green_cell: str, red_cell: str) -> dict:
+    computer = (microscope_for_path(session) or {}).get("computer")
+    return mapping_from_emission(green_cell, red_cell, computer)
+
+
+def session_sensors(session: Path, green_sensor: str | None, red_sensor: str | None) -> dict:
+    computer = (microscope_for_path(session) or {}).get("computer")
+    colors = pmt_colors(computer)
+    return {colors["green"]: green_sensor, colors["red"]: red_sensor}
+
+
 def infer_cell_type(sensor: str, fallback: str) -> str:
     return SENSOR_TO_CELL_TYPE.get(sensor, fallback)
 
@@ -192,6 +205,7 @@ def inspect_session(session: Path, template: str, mapping: dict,
         channel_cell_types=mapping,
     )
     rec["cell_type"] = {"A": mapping["A"], "B": mapping["B"]}
+    rec["pmt_color"] = pmt_colors((rec["microscope"] or {}).get("computer"))
     rec["align_channel"] = rec["roles"]["neuron"]
     return rec
 
@@ -362,10 +376,10 @@ def run_tree(
     root: Path,
     *,
     template: str = DEFAULT_INPUT_TIFF_TEMPLATE,
-    chan_a_cell: str = "neuron",
-    chan_b_cell: str = "astrocyte",
-    chan_a_sensor: str | None = None,
-    chan_b_sensor: str | None = None,
+    green_cell: str = "astrocyte",
+    red_cell: str = "neuron",
+    green_sensor: str | None = "G-Flamp",
+    red_sensor: str | None = "jRGECO",
     do_mc: bool = True,
     do_seg: bool = True,
     overwrite: bool = False,
@@ -374,15 +388,17 @@ def run_tree(
     min_nframes: int = 500,
 ) -> list[dict]:
     root = Path(root)
-    mapping = mapping_from_cells(chan_a_cell, chan_b_cell)
+    mapping_from_emission(green_cell, red_cell)
     sessions = discover_sessions(root, template)
     print(f"Found {len(sessions)} session(s) under {root}")
+    print(f"  emission: green={green_sensor}/{green_cell}  red={red_sensor}/{red_cell}")
     summary = []
     for session in sessions:
         data = data_root(session)
+        mapping = session_mapping(session, green_cell, red_cell)
         rec = inspect_session(session, template, mapping, min_nframes=min_nframes)
         rec["data"] = str(data) if data else None
-        rec["sensors"] = {"A": chan_a_sensor, "B": chan_b_sensor}
+        rec["sensors"] = session_sensors(session, green_sensor, red_sensor)
         rec["suite2p_temp"] = COLLECTED_FOLDERS["temporal"]
         rec["suite2p_anat"] = COLLECTED_FOLDERS["cyto3"]
         if inventory or rec["status"] != "ok":
@@ -435,10 +451,10 @@ def parse_args(argv=None):
     p.add_argument("--overwrite", action="store_true")
     p.add_argument("--save-stack", action="store_true",
                    help="Also write combined_registered.tif (large)")
-    p.add_argument("--chanA-cell", default="neuron", choices=["neuron", "astrocyte"])
-    p.add_argument("--chanB-cell", default="astrocyte", choices=["neuron", "astrocyte"])
-    p.add_argument("--chanA-sensor", default="jRGECO")
-    p.add_argument("--chanB-sensor", default="G-Flamp")
+    p.add_argument("--green-cell", default="astrocyte", choices=["neuron", "astrocyte"])
+    p.add_argument("--red-cell", default="neuron", choices=["neuron", "astrocyte"])
+    p.add_argument("--green-sensor", default="G-Flamp")
+    p.add_argument("--red-sensor", default="jRGECO")
     p.add_argument(
         "--input-template",
         default=DEFAULT_INPUT_TIFF_TEMPLATE,
@@ -461,10 +477,10 @@ def main(argv=None):
     run_tree(
         Path(args.root),
         template=args.input_template,
-        chan_a_cell=args.chanA_cell,
-        chan_b_cell=args.chanB_cell,
-        chan_a_sensor=args.chanA_sensor,
-        chan_b_sensor=args.chanB_sensor,
+        green_cell=args.green_cell,
+        red_cell=args.red_cell,
+        green_sensor=args.green_sensor,
+        red_sensor=args.red_sensor,
         do_mc=not args.skip_mc,
         do_seg=not args.skip_seg,
         overwrite=args.overwrite,

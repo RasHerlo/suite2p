@@ -50,12 +50,16 @@ ROI_SELECTION = {
 MICROSCOPES = {
     "THORLABS_30_016": {
         "name": "Shinano",
+        "green": "B",
+        "red": "A",
         "align_channel": "A",
         "neuron": "A",
         "astrocyte": "B",
     },
     "USER-PC": {
         "name": "Musashi",
+        "green": "A",
+        "red": "B",
         "align_channel": "B",
         "neuron": "B",
         "astrocyte": "A",
@@ -67,8 +71,9 @@ MICROSCOPES = {
 # Override when sensors change, e.g. {"A": "astrocyte", "B": "neuron"}.
 CHANNEL_CELL_TYPES = {}
 
-# Fluorophore → default cell type. GUI sensors fill cell-type boxes; ops
-# still follow the cell-type boxes (astrocytes / neurons), not Chan letters.
+# Fluorophore → default cell type. The GUI assigns sensors to *green/red*
+# emission; XML maps those colors onto ChanA/B (cubes invert across rigs).
+# Ops still follow the cell-type boxes, not Chan letters.
 SENSORS = ("G-Flamp", "jRGECO", "RCaMP", "other")
 SENSOR_TO_CELL_TYPE = {
     "G-Flamp": "astrocyte",
@@ -387,6 +392,26 @@ def channel_letter_from_name(token):
     if "ChanA" in text or text in ("A", "a"):
         return "A"
     return None
+
+
+def pmt_colors(computer=None):
+    """Which PMT letter is green vs red on this rig's default cubes."""
+    info = MICROSCOPES.get(computer) if computer else None
+    if info is None or "green" not in info:
+        info = MICROSCOPES["THORLABS_30_016"]
+    return {"green": info["green"], "red": info["red"]}
+
+
+def mapping_from_emission(green_cell, red_cell, computer=None):
+    """Prep-level green/red cell types → ChanA/B mapping for this computer."""
+    green, red = str(green_cell).lower(), str(red_cell).lower()
+    if {green, red} != {"neuron", "astrocyte"}:
+        raise ValueError(
+            "green and red must be one neuron and one astrocyte "
+            f"(got green={green!r}, red={red!r})"
+        )
+    colors = pmt_colors(computer)
+    return {colors["green"]: green, colors["red"]: red}
 
 
 def pmt_roles(computer=None, channel_cell_types=None):

@@ -14,12 +14,11 @@ from tkinter import filedialog, messagebox, ttk
 from lab.configs.defaults import (
     DEFAULT_INPUT_TIFF_TEMPLATE,
     SENSORS,
+    mapping_from_emission,
     microscope_for_path,
+    pmt_colors,
 )
-from lab.pipeline.run_collected import infer_cell_type, mapping_from_cells, run_tree
-
-_SHINANO = {"A": ("jRGECO", "neuron"), "B": ("G-Flamp", "astrocyte")}
-_MUSASHI = {"A": ("G-Flamp", "astrocyte"), "B": ("jRGECO", "neuron")}
+from lab.pipeline.run_collected import infer_cell_type, run_tree
 
 
 class _LogWriter:
@@ -59,10 +58,18 @@ class Initiator(ttk.Frame):
         self.template_var = tk.StringVar(
             value=getattr(args, "input_template", None) or DEFAULT_INPUT_TIFF_TEMPLATE
         )
-        self.sensor_a = tk.StringVar(value=getattr(args, "chanA_sensor", None) or "jRGECO")
-        self.sensor_b = tk.StringVar(value=getattr(args, "chanB_sensor", None) or "G-Flamp")
-        self.cell_a = tk.StringVar(value=getattr(args, "chanA_cell", None) or "neuron")
-        self.cell_b = tk.StringVar(value=getattr(args, "chanB_cell", None) or "astrocyte")
+        self.sensor_green = tk.StringVar(
+            value=getattr(args, "green_sensor", None) or "G-Flamp"
+        )
+        self.sensor_red = tk.StringVar(
+            value=getattr(args, "red_sensor", None) or "jRGECO"
+        )
+        self.cell_green = tk.StringVar(
+            value=getattr(args, "green_cell", None) or "astrocyte"
+        )
+        self.cell_red = tk.StringVar(
+            value=getattr(args, "red_cell", None) or "neuron"
+        )
         self.do_mc = tk.BooleanVar(value=True)
         self.do_seg = tk.BooleanVar(value=True)
         self.overwrite = tk.BooleanVar(value=False)
@@ -71,8 +78,10 @@ class Initiator(ttk.Frame):
         self.microscope_var = tk.StringVar(value="(pick a root to read Experiment.xml)")
 
         self._build()
-        self.sensor_a.trace_add("write", lambda *_: self._sensor_to_cell("A"))
-        self.sensor_b.trace_add("write", lambda *_: self._sensor_to_cell("B"))
+        self.sensor_green.trace_add("write", lambda *_: self._sensor_to_cell("green"))
+        self.sensor_red.trace_add("write", lambda *_: self._sensor_to_cell("red"))
+        if self.root_var.get():
+            self._apply_xml_defaults(Path(self.root_var.get()))
 
     def _build(self):
         row = 0
@@ -90,22 +99,22 @@ class Initiator(ttk.Frame):
         )
         row += 1
 
-        ttk.Label(self, text="ChanA").grid(row=row, column=0, sticky="w")
+        ttk.Label(self, text="Green").grid(row=row, column=0, sticky="w")
         ttk.Combobox(
-            self, textvariable=self.sensor_a, values=SENSORS, width=12, state="readonly"
+            self, textvariable=self.sensor_green, values=SENSORS, width=12, state="readonly"
         ).grid(row=row, column=1, sticky="w")
         ttk.Combobox(
-            self, textvariable=self.cell_a, values=("neuron", "astrocyte"), width=12,
+            self, textvariable=self.cell_green, values=("neuron", "astrocyte"), width=12,
             state="readonly",
         ).grid(row=row, column=2, sticky="w")
         ttk.Label(self, text="sensor / cell type").grid(row=row, column=3, sticky="w")
         row += 1
-        ttk.Label(self, text="ChanB").grid(row=row, column=0, sticky="w")
+        ttk.Label(self, text="Red").grid(row=row, column=0, sticky="w")
         ttk.Combobox(
-            self, textvariable=self.sensor_b, values=SENSORS, width=12, state="readonly"
+            self, textvariable=self.sensor_red, values=SENSORS, width=12, state="readonly"
         ).grid(row=row, column=1, sticky="w")
         ttk.Combobox(
-            self, textvariable=self.cell_b, values=("neuron", "astrocyte"), width=12,
+            self, textvariable=self.cell_red, values=("neuron", "astrocyte"), width=12,
             state="readonly",
         ).grid(row=row, column=2, sticky="w")
         row += 1
@@ -118,8 +127,9 @@ class Initiator(ttk.Frame):
         ttk.Label(
             self,
             text=(
-                "Use {letter} for A/B. Default is defringe v2.2. XML sets fs and µm/px. "
-                "Writes suite2p_temp / suite2p_anat into DATA/ChanA|B (does not overwrite the v22 TIFFs)."
+                "Green/red stay with the prep. XML maps them onto ChanA/B "
+                "(Shinano A=red, Musashi A=green). Writes suite2p_temp / suite2p_anat "
+                "into DATA/ChanA|B; does not overwrite the v22 TIFFs."
             ),
             foreground="#444",
         ).grid(row=row, column=0, columnspan=4, sticky="w")
@@ -169,26 +179,21 @@ class Initiator(ttk.Frame):
             return
         name = info.get("name") or "unknown"
         computer = info.get("computer") or ""
-        self.microscope_var.set(f"XML: {name}  ({computer})  — fs / µm/px read at run time")
-        preset = _MUSASHI if computer == "USER-PC" else _SHINANO
-        self._syncing = True
-        try:
-            self.sensor_a.set(preset["A"][0])
-            self.cell_a.set(preset["A"][1])
-            self.sensor_b.set(preset["B"][0])
-            self.cell_b.set(preset["B"][1])
-        finally:
-            self._syncing = False
+        colors = pmt_colors(computer)
+        self.microscope_var.set(
+            f"XML: {name}  ({computer})  — Chan{colors['green']}=green, "
+            f"Chan{colors['red']}=red  (fs / µm/px at run time)"
+        )
 
-    def _sensor_to_cell(self, letter: str):
+    def _sensor_to_cell(self, color: str):
         if self._syncing:
             return
-        sensor = self.sensor_a.get() if letter == "A" else self.sensor_b.get()
-        inferred = infer_cell_type(sensor, "neuron" if letter == "A" else "astrocyte")
-        if letter == "A":
-            self.cell_a.set(inferred)
+        sensor = self.sensor_green.get() if color == "green" else self.sensor_red.get()
+        inferred = infer_cell_type(sensor, "astrocyte" if color == "green" else "neuron")
+        if color == "green":
+            self.cell_green.set(inferred)
         else:
-            self.cell_b.set(inferred)
+            self.cell_red.set(inferred)
 
     def _go(self, inventory: bool):
         if self._busy:
@@ -198,7 +203,7 @@ class Initiator(ttk.Frame):
             messagebox.showerror("Missing root", "Pick an existing root directory.")
             return
         try:
-            mapping_from_cells(self.cell_a.get(), self.cell_b.get())
+            mapping_from_emission(self.cell_green.get(), self.cell_red.get())
         except ValueError as exc:
             messagebox.showerror("Cell types", str(exc))
             return
@@ -213,10 +218,10 @@ class Initiator(ttk.Frame):
                 run_tree(
                     Path(root),
                     template=self.template_var.get().strip() or DEFAULT_INPUT_TIFF_TEMPLATE,
-                    chan_a_cell=self.cell_a.get(),
-                    chan_b_cell=self.cell_b.get(),
-                    chan_a_sensor=self.sensor_a.get(),
-                    chan_b_sensor=self.sensor_b.get(),
+                    green_cell=self.cell_green.get(),
+                    red_cell=self.cell_red.get(),
+                    green_sensor=self.sensor_green.get(),
+                    red_sensor=self.sensor_red.get(),
                     do_mc=self.do_mc.get(),
                     do_seg=self.do_seg.get(),
                     overwrite=self.overwrite.get(),

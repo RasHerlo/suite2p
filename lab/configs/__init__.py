@@ -23,6 +23,8 @@ from lab.configs.defaults import (
     apply_seg_eval_ops,
     apply_temporal_cell_ops,
     cell_type_for_letter,
+    mapping_from_emission,
+    pmt_colors,
     pmt_roles,
 )
 
@@ -51,5 +53,7 @@ __all__ = [
     "apply_seg_eval_ops",
     "apply_temporal_cell_ops",
     "cell_type_for_letter",
+    "mapping_from_emission",
+    "pmt_colors",
     "pmt_roles",
 ]
