@@ -1,6 +1,6 @@
 # Current work
 
-Last updated: 2026-08-20
+Last updated: 2026-08-26
 
 **Paper / catalog agent:** [HANDOFF_FOR_PAPER_REPO.md](HANDOFF_FOR_PAPER_REPO.md)
 (not this scratchpad). SUPPORT agent: [HANDOFF_FOR_SUPPORT.md](HANDOFF_FOR_SUPPORT.md).
@@ -9,9 +9,9 @@ Assemble / stk agent: [HANDOFF_FOR_THORLABS_DATA_OVERVIEW.md](HANDOFF_FOR_THORLA
 
 **Active:** Collected MC + locked temporal/anatomical pipeline:
 `python lab/pipeline/run_collected.py --gui`. Cell types follow
-astrocytes/neurons; XML sets fs and µm/px. Outputs stay next to the
-defringe v22 stacks: `DATA/ChanA|B/suite2p_temp` and `suite2p_anat`.
-Do not overwrite those TIFFs. Intercalation / pickle is
+astrocytes/neurons; XML sets fs and µm/px. Outputs stay in `DATA/ChanA|B/suite2p_temp` and `suite2p_anat`.
+v22 TIFFs live in `DATA/ChanA|B/defringed_v22/` (legacy: directly in
+the Chan folder). Do not overwrite those TIFFs. Intercalation / pickle is
 s2p_Trace_Curation (pickle in the same Chan folder). Do not extract
 paper traces. Sandbox bakeoffs still live under `mc_runs/` / `seg_runs/`.
 

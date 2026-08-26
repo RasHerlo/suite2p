@@ -7,22 +7,24 @@
 **This file is the entry point.** Read it before `CURRENT.md` or the bakeoff
 figures. Do not edit MouseLand `suite2p/` or re-implement defringe here.
 
-Last updated: 2026-08-20.
+Last updated: 2026-08-26.
 
 **Status (read this first):**
 
 - **Default production pipeline (2026-08-20):**
   `python lab/pipeline/run_collected.py --gui` (or `--root PATH`).
-  Defringe already writes `Chan{A|B}_stk_defringed_v22.tif` into
-  `<session>/DATA/ChanA` and `DATA/ChanB`. This runner registers those
-  stacks in place and leaves temporal + anatomical suite2p folders
-  **in the same Chan folders**:
+  Defringe (2026-08-26+) writes `Chan{A|B}_stk_defringed_v22.tif` into
+  `<session>/DATA/ChanA|B/defringed_v22/`. Older sessions may still have
+  the TIFF directly in the Chan folder. This runner registers those
+  stacks and leaves temporal + anatomical suite2p folders **in the Chan
+  folders** (not inside `defringed_v22/`):
 
   ```
   DATA/ChanA|B/
-    Chan*_stk_defringed_v22.tif   # defringe; do not overwrite
-    suite2p_temp/                 # temporal ROIs + F/Fneu
-    suite2p_anat/                 # anatomical (cyto3) ROIs + F/Fneu
+    defringed_v22/
+      Chan*_stk_defringed_v22.tif   # defringe; do not overwrite
+    suite2p_temp/                   # temporal ROIs + F/Fneu
+    suite2p_anat/                   # anatomical (cyto3) ROIs + F/Fneu
   ```
 
   Share-align on the **neuron PMT** (Shinano=`A`, Musashi=`B`). Independent
@@ -205,9 +207,10 @@ Do not promote any of these for paper traces.
 5. **Do not FFT-notch inside this repo.** Defringe is
    [derippling_PMT_noise](https://github.com/RasHerlo/derippling_PMT_noise)
    (v2.1: `reference/gpt/pmt_fringe_raw_adaptive_v21.py`).
-6. **Do not overwrite `Chan*_stk_defringed_v22.tif`.** The default collected
-   pipeline *does* write `suite2p_temp` / `suite2p_anat` (and MC QC) into
-   session `DATA/ChanA|B`. Sandbox bakeoffs still live under `mc_runs/` /
+6. **Do not overwrite `Chan*_stk_defringed_v22.tif`.** New layout:
+   `DATA/ChanA|B/defringed_v22/`. The default collected pipeline writes
+   `suite2p_temp` / `suite2p_anat` (and MC QC) into session `DATA/ChanA|B`,
+   not into that subfolder. Sandbox bakeoffs still live under `mc_runs/` /
    `seg_runs/` — do not mix those trees with the collected contract.
 7. **Do not share shifts across unequal lengths** (SUPPORT cut vs full stack).
 8. **Do not use stock Cellpose on ChanB astrocytes.** Soma prior; clouds get

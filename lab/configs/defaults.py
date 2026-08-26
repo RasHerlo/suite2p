@@ -82,6 +82,9 @@ SENSOR_TO_CELL_TYPE = {
 }
 
 DEFAULT_INPUT_TIFF_TEMPLATE = "Chan{letter}_stk_defringed_v22.tif"
+# Defringe repo (2026-08-26+) writes that TIFF into DATA/ChanA|B/<subdir>/.
+# Older sessions may still have it directly in DATA/ChanA|B/.
+DEFRINGED_V22_SUBDIR = "defringed_v22"
 
 
 def find_experiment_xml(start):
@@ -580,7 +583,7 @@ SEG_EVAL = {
     "delete_bin": False,
     "do_regmetrics": False,
     "save_folder": "suite2p",
-    # Collected pipeline (next to defringed_v22 in DATA/ChanA|B):
+    # Collected pipeline (MC/seg in DATA/ChanA|B; v22 TIFF in defringed_v22/):
     "collected_folders": {
         "temporal": "suite2p_temp",
         "cyto3": "suite2p_anat",

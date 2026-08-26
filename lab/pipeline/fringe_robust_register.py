@@ -46,6 +46,7 @@ from suite2p import default_ops
 from suite2p.registration import register
 
 from lab.configs.defaults import (
+    DEFRINGED_V22_SUBDIR,
     REGISTRATION,
     REGISTRATION_LEGACY,
     apply_acquisition_to_ops,
@@ -453,6 +454,11 @@ def run_independent_nonalign(
 
 
 def find_input_tiff(folder, cfg, letter=None):
+    """Return the delivered stack in a ChanA/B folder.
+
+    Prefers ``<ChanX>/defringed_v22/<template>`` (2026-08-26+ defringe
+    layout), then the TIFF directly in ``<ChanX>/`` (legacy sessions).
+    """
     folder = Path(folder)
     letter = letter or channel_letter_from_path(folder)
     template = cfg.get("input_tiff_template") or "Chan{letter}_stk_defringed_v22.tif"
@@ -465,10 +471,16 @@ def find_input_tiff(folder, cfg, letter=None):
             extra_s = extra_s.format(letter=letter, Letter=letter)
         if extra_s not in names:
             names.append(extra_s)
+    subdir = cfg.get("defringed_subdir", DEFRINGED_V22_SUBDIR)
+    search_dirs = []
+    if subdir:
+        search_dirs.append(folder / subdir)
+    search_dirs.append(folder)
     for name in names:
-        path = folder / name
-        if path.exists():
-            return path
+        for base in search_dirs:
+            path = base / name
+            if path.exists():
+                return path
     return None
 
 

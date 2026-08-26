@@ -128,8 +128,10 @@ class Initiator(ttk.Frame):
             self,
             text=(
                 "Green/red stay with the prep. XML maps them onto ChanA/B "
-                "(Shinano A=red, Musashi A=green). Writes suite2p_temp / suite2p_anat "
-                "into DATA/ChanA|B; does not overwrite the v22 TIFFs."
+                "(Shinano A=red, Musashi A=green). Looks for v22 in "
+                "DATA/ChanA|B/defringed_v22/ (legacy: TIFF in the Chan folder). "
+                "Writes suite2p_temp / suite2p_anat into DATA/ChanA|B; "
+                "does not overwrite the v22 TIFFs."
             ),
             foreground="#444",
         ).grid(row=row, column=0, columnspan=4, sticky="w")

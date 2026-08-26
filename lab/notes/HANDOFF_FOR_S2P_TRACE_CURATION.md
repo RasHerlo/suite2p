@@ -15,7 +15,7 @@ Do **not** re-run motion correction or Cellpose training in the curation
 repo. Do **not** extract paper traces until both ROI families look usable.
 Do **not** turn on OASIS here (`spks.npy` may be zeros; that is expected).
 
-Last updated: 2026-08-20.
+Last updated: 2026-08-26.
 
 ---
 
@@ -43,15 +43,16 @@ Curation GUI: File → Open suite2p folder… = the folder that **contains**
 
 ## What you receive (collected folder contract)
 
-Defringe already leaves `ChanA/B_stk_defringed_v22.tif` in
-`<session>/DATA/ChanA` and `DATA/ChanB`. This repo writes MC + both
-detection arms **into those same Chan folders**. Do not overwrite the
-v22 TIFFs. Prefer one pickle per Chan folder so intercalation stays
-local:
+Defringe (2026-08-26+) leaves `ChanA/B_stk_defringed_v22.tif` in
+`<session>/DATA/ChanA|B/defringed_v22/` (older sessions may still have
+the TIFF in the Chan folder itself). This repo writes MC + both
+detection arms **into the Chan folders**, not into `defringed_v22/`.
+Do not overwrite the v22 TIFFs. Prefer one pickle per Chan folder so
+intercalation stays local:
 
 ```
 <session>/DATA/ChanA/
-  ChanA_stk_defringed_v22.tif   # defringe repo; leave it
+  defringed_v22/ChanA_stk_defringed_v22.tif   # defringe repo; leave it
   MeanImg.png, offsets.npz, ops.npy
   suite2p_temp/plane0/          # temporal ROIs + F/Fneu  (open this)
   suite2p_anat/plane0/          # anatomical ROIs + F/Fneu (open this)
@@ -185,17 +186,19 @@ disagree with ChanA.
   both arms.
 - Do not share one `trc_curation.pkl` across unequal-length movies
   (SUPPORT 5340 vs full 5400).
-- Do not overwrite `Chan*_stk_defringed_v22.tif`. Collected products
-  belong in the same `DATA/ChanA|B` folders; pickle there too. Older
-  sandbox bakeoffs still live under `mc_runs/` / `seg_runs/` — do not
-  mix those trees with the collected contract.
+- Do not overwrite `Chan*_stk_defringed_v22.tif` (now under
+  `DATA/ChanA|B/defringed_v22/`). Collected products and pickle stay in
+  the Chan folders, not in that subfolder. Sandbox bakeoffs still live
+  under `mc_runs/` / `seg_runs/` — do not mix those trees with the
+  collected contract.
 
 ---
 
 ## What suite2p will send next
 
 1. Collected runner: `python lab/pipeline/run_collected.py --gui` →
-   `DATA/Chan{A|B}/suite2p_temp` and `suite2p_anat` next to the v22 TIFFs.
+   `DATA/Chan{A|B}/suite2p_temp` and `suite2p_anat` (v22 TIFFs live in
+   `defringed_v22/` beside those folders).
 2. Open those two folders; leave `trc_curation.pkl` in `DATA/ChanA|B`.
 3. Custom astrocyte weights still optional (`CELLPOSE['models']['astrocyte']`);
    stock `cyto3` + physical diameter is the locked anatomical AC arm.

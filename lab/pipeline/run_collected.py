@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Collected share-align MC + locked temporal/anatomical extraction.
 
-Walk a ThorImage tree. Inputs are ``ChanA/B_stk_defringed_v22.tif`` in
-``DATA/ChanA`` and ``DATA/ChanB`` (defringe repo owns that suffix).
+Walk a ThorImage tree. Inputs are ``ChanA/B_stk_defringed_v22.tif`` under
+``DATA/ChanA|B/defringed_v22/`` (defringe repo owns that suffix). Older
+sessions may still have the TIFF directly in ``DATA/ChanA|B/``.
 
-Outputs stay in those same Chan folders so s2p_Trace_Curation can open
-both arms and write its pickle beside them::
+Outputs stay in the Chan folders (not inside ``defringed_v22/``) so
+s2p_Trace_Curation can open both arms and write its pickle beside them::
 
     DATA/ChanA/
-      ChanA_stk_defringed_v22.tif
+      defringed_v22/ChanA_stk_defringed_v22.tif
       MeanImg.png
       suite2p_temp/plane0/   temporal ROIs + F/Fneu
       suite2p_anat/plane0/   anatomical ROIs + F/Fneu
