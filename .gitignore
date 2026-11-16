@@ -75,3 +75,4 @@ models/*
 # motion-correction app build
 apps/motion_correction/dist/
 apps/motion_correction/*.spec
+apps/motion_correction/*.zip

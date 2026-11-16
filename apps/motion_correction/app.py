@@ -133,5 +133,23 @@ class App(tk.Tk):
         self.worker.start()
 
 
+def _cli(tif, out):
+    """Headless run: app.exe --cli in.tif out_dir  (log written to out_dir/cli_log.txt)."""
+    Path(out).mkdir(parents=True, exist_ok=True)
+    with open(Path(out) / "cli_log.txt", "w") as lf:
+        def log(m):
+            lf.write(m + "\n")
+            lf.flush()
+        try:
+            mc_core.motion_correct(tif, out, log=log)
+        except Exception as e:  # noqa: BLE001
+            import traceback
+            log("ERROR: " + traceback.format_exc())
+
+
 if __name__ == "__main__":
-    App().mainloop()
+    import sys
+    if len(sys.argv) == 4 and sys.argv[1] == "--cli":
+        _cli(sys.argv[2], sys.argv[3])
+    else:
+        App().mainloop()
