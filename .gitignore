@@ -72,3 +72,6 @@ data/test_data
 # Cellpose / custom model weights (keep the folder README)
 models/*
 !models/README.md
+# motion-correction app build
+apps/motion_correction/dist/
+apps/motion_correction/*.spec
