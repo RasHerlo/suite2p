@@ -1,0 +1,56 @@
+name: Build and release Simple_MC_GUI
+
+# Triggered by pushing the tag "Simple_MC_GUI" (deliberately NOT a v* tag, which would
+# trigger the upstream PyPI deploy in test_and_deploy.yml).
+on:
+  push:
+    tags: ["Simple_MC_GUI*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy scipy numba tifffile pyinstaller
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Build app
+        shell: pwsh
+        run: .\apps\motion_correction\build_exe.ps1
+
+      - name: Smoke test built exe (headless)
+        shell: pwsh
+        run: |
+          python -c "import numpy as np, tifffile; r=np.random.default_rng(0); tifffile.imwrite('t.tif', r.poisson(50,(20,128,128)).astype('uint16'))"
+          Start-Process -Wait apps\motion_correction\dist\Suite2pMotionCorrection\Suite2pMotionCorrection.exe -ArgumentList '--cli','t.tif','smoke_out'
+          Get-Content smoke_out\cli_log.txt
+          if (-not (Test-Path smoke_out\t_shifts.csv)) { throw "Smoke test failed: no shifts CSV" }
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path apps\motion_correction\dist\Suite2pMotionCorrection -DestinationPath Suite2pMotionCorrection-win64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Simple_MC_GUI-windows
+          path: Suite2pMotionCorrection-win64.zip
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/Simple_MC_GUI')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Simple_MC_GUI
+          files: Suite2pMotionCorrection-win64.zip
+          generate_release_notes: true
